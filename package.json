@@ -54,7 +54,7 @@
     "chrono-node": "^2.9.0",
     "ical.js": "^2.2.1",
     "pino": "^10.3.0",
-    "tsdav": "^2.1.6",
+    "tsdav": "^2.5.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
