@@ -50,7 +50,7 @@
     "url": "https://github.com/linagora/mcp-twake-dav/issues"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.3",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "chrono-node": "^2.9.0",
     "ical.js": "^2.2.1",
     "pino": "^10.3.0",
