@@ -51,7 +51,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.3",
-    "chrono-node": "^2.9.0",
+    "chrono-node": "^2.10.3",
     "ical.js": "^2.2.1",
     "pino": "^10.3.0",
     "tsdav": "^2.1.6",
