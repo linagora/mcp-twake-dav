@@ -42,12 +42,13 @@ export interface RecurrenceOptions {
  *
  * @param vevent - ICAL.Component for a VEVENT
  * @param options - Expansion options (maxOccurrences, maxDate, startDate)
- * @returns Array of occurrence dates
+ * @returns Array of occurrences, as ICAL.Time: the frame of the series is kept, which a JavaScript Date
+ *   loses around a daylight-saving change (02:30 read back as 03:30)
  */
 export function expandRecurringEvent(
   vevent: ICAL.Component,
   options?: RecurrenceOptions
-): Date[] {
+): ICAL.Time[] {
   // Destructure options with defaults
   const maxOccurrences = options?.maxOccurrences ?? 100;
   const maxDate =
@@ -71,13 +72,12 @@ export function expandRecurringEvent(
     dtstart: dtstartTime,
   });
 
-  const occurrences: Date[] = [];
+  const occurrences: ICAL.Time[] = [];
   let count = 0;
   let next;
 
   // Iterate through occurrences until limits reached
   while ((next = expand.next()) && count < maxOccurrences) {
-    // Convert ICAL.Time to JS Date
     const jsDate = next.toJSDate();
 
     // Stop if occurrence is beyond maxDate
@@ -90,8 +90,8 @@ export function expandRecurringEvent(
       continue; // Skip but don't increment count
     }
 
-    // Include this occurrence
-    occurrences.push(jsDate);
+    // Include this occurrence, as ical.js gives it
+    occurrences.push(next);
     count++;
   }
 

@@ -398,11 +398,12 @@ export function getEventsWithRecurrenceExpansion(
         const overlaps = (start: Date, end: Date) => (end > startDate || start >= startDate) && start < endDate;
 
         // Create EventDTO for each occurrence (preserving original fields, updating dates)
-        for (const occurrenceDate of occurrences) {
-          // Check if this occurrence has an exception (RECURRENCE-ID)
-          // This handles cancelled instances that use RECURRENCE-ID + STATUS=CANCELLED
-          // IMPORTANT: Use 'true' to create UTC time, matching the RECURRENCE-ID format
-          const occurrenceTime = ICAL.Time.fromJSDate(occurrenceDate, true);
+        for (const occurrenceTime of occurrences) {
+          const occurrenceDate = occurrenceTime.toJSDate();
+          // Match this occurrence with the exception that may replace or cancel it. The ICAL.Time of
+          // the expansion is already in the frame of the series (UTC, TZID, or floating and dated for
+          // an all-day one), and rebuilding it from its Date lands on another hour around a
+          // daylight-saving change.
           const details = icalEvent.getOccurrenceDetails(occurrenceTime);
 
           // If this occurrence has an exception, check if it's cancelled
