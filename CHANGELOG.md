@@ -4,6 +4,9 @@ All notable changes to mcp-twake-dav are documented here. The format follows [Ke
 
 ## [Unreleased]
 
+### Fixed
+- `discoverSchedulingInbox()` sent a malformed PROPFIND — the property was nested under a `propfind` key, which tsdav turns into a property *named* propfind — so the scheduling inbox was never found, on any server, and every call warned that the server does not support scheduling.
+
 ## [4.2.1] - 2026-11-11
 
 ### Fixed
