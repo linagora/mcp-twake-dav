@@ -336,11 +336,17 @@ describe('calendar access rights', () => {
       const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
       await scoped.connect(clientTransport);
 
-      await scoped.callTool({ name: 'create_event', arguments: { title: 'Point', start: '2026-11-12T10:00:00', end: '2026-11-12T11:00:00' } });
-      const put = same.requests.filter((request) => request.method === 'PUT');
-      expect(put).toHaveLength(1);
-      expect(put[0].url).toContain(own.url.replace(same.url, '/'));
-      await scoped.close();
+      try {
+        const answer = await scoped.callTool({ name: 'create_event', arguments: { title: 'Point', start: '2026-11-12T10:00:00', end: '2026-11-12T11:00:00' } });
+        // the tool names the calendar it chose, and the write goes there
+        const text = (answer.content as Array<{ text: string }>).map((content) => content.text).join('\n');
+        expect(text).toContain('in calendar "Agenda"');
+        const put = same.requests.filter((request) => request.method === 'PUT');
+        expect(put).toHaveLength(1);
+        expect(put[0].url).toContain(own.url.replace(same.url, '/'));
+      } finally {
+        await scoped.close();
+      }
     } finally {
       await same.close();
     }
