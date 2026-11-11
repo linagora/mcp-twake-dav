@@ -51,8 +51,9 @@ export function registerRemoveAlarmTool(
         logger.debug({ params }, 'remove_alarm called');
 
         // Resolve target calendar
+        // "all" and no name both mean the configured default calendar, when there is one
         const resolvedCalendar = isAllCalendars(params.calendar)
-          ? undefined
+          ? defaultCalendar
           : (params.calendar || defaultCalendar || undefined);
 
         // Find event by UID

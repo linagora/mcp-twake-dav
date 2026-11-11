@@ -36,7 +36,7 @@ export function registerListInvitationsTool(
         start: z.string().describe('Start of time range (ISO 8601 or natural language like "today", "next week")'),
         end: z.string().describe('End of time range (ISO 8601 or natural language)'),
       }).optional().describe('Events in this range (default: from now to 30 days ahead).'),
-      calendar: z.string().optional().describe('Calendar to look in, or "all" (default: the default calendar).'),
+      calendar: z.string().optional().describe('Calendar to look in, or "all" (default: the default calendar when one is set, then every calendar).'),
     },
     {
       readOnlyHint: true,

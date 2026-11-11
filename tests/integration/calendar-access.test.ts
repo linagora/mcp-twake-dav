@@ -341,23 +341,41 @@ describe('calendar access rights', () => {
     }
   });
 
-  it('reads "all" the same way in every tool, whatever the case', async () => {
+  it('reads "all" the same way in every tool: the default calendar when one is set', async () => {
+    // the account shares nothing here, so "mine" holds Perso only
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_DEFAULT_CALENDAR: 'mine', DAV_ORGANIZER_EMAIL: 'u@example.com' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+    const server = createServer(service, new AddressBookService(clients.carddav, logger), logger, 'mine');
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+    await scoped.connect(clientTransport);
+
     for (const name of ['all', 'ALL', ' All ']) {
-      dav.requests.length = 0;
-      const text = await call('get_todays_schedule', { calendar: name });
+      // a query tool: the default calendar, not the colleague's
+      const answer = await scoped.callTool({ name: 'get_todays_schedule', arguments: { calendar: name } });
+      const text = (answer.content as Array<{ text: string }>).map((content) => content.text).join('\n');
       expect(text, name).toContain('Event of Perso');
-      expect(text, name).toContain('Event of Team');
+      expect(text, name).not.toContain('Event of Team');
       expect(text, name).not.toContain('not found');
 
-      // and the tools that find an event by UID search every calendar too
-      const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_DEFAULT_CALENDAR: 'mine', DAV_ORGANIZER_EMAIL: 'u@example.com' } as Config;
-      const clients = await createDualClients(config, logger);
-      const service = new CalendarService(clients.caldav, logger, config);
+      // and a tool that finds an event by UID searches the same calendars
       dav.requests.length = 0;
       await service.findInvitation('a', name).catch(() => null);
       const queried = dav.requests.filter((request) => request.method === 'REPORT').map((request) => request.url);
-      expect(queried.some((url) => url.includes('/Shared/')), name).toBe(true);
+      expect(queried.length, name).toBeGreaterThan(0);
+      expect(queried.every((url) => !url.includes('/Shared/') && !url.includes('/Team/')), name).toBe(true);
     }
+
+    await scoped.close();
+  });
+
+  it('reads "all" as every calendar when no default calendar is set', async () => {
+    const text = await call('get_todays_schedule', { calendar: 'ALL' });
+    expect(text).toContain('Event of Perso');
+    expect(text).toContain('Event of Team');
+    expect(text).toContain('Event of Shared');
   });
 
   it('follows the default calendar in respond_to_invitation, like list_invitations', async () => {

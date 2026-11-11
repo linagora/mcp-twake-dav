@@ -195,7 +195,7 @@ get_todays_schedule(calendar: "shared-write") # somebody else's calendars shared
 get_todays_schedule(calendar: "read-only")    # where you may only read: shared read-only, or your own
 ```
 
-A group can also be the default calendar (`DAV_DEFAULT_CALENDAR=mine`): an assistant then reads the calendars you own unless it names another calendar. `calendar: "all"` means every calendar, here as in every other tool — a call that asks for everything gets everything — and `DAV_DEFAULT_CALENDAR=all` means no default at all. A name still targets one calendar — a calendar that really is called `mine` keeps its own name.
+A group can also be the default calendar (`DAV_DEFAULT_CALENDAR=mine`): an assistant then reads the calendars you own unless it names another calendar. `calendar: "all"` follows that default — an assistant sends "all" on its own, and a user who configured a default did not ask for every calendar — and `DAV_DEFAULT_CALENDAR=all` means no default at all, every calendar being read only when none is configured. A name still targets one calendar — a calendar that really is called `mine` keeps its own name.
 
 `create_event` needs a calendar name when the default is a group, since creating an event in several calendars at once has no meaning. The tools that find an event by UID — `update_event`, `delete_event`, `add_alarm`, `remove_alarm` — search the calendars of that group.
 

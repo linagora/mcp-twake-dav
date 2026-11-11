@@ -594,9 +594,11 @@ export async function resolveCalendarEvents(
   defaultCalendar: string | undefined,
   timeRange: TimeRange,
 ): Promise<DAVCalendarObject[]> {
-  // The calendar the call names comes first; the configured default fills in when it names none. "all"
-  // means every calendar, here as in every other tool: an explicit request wins over the default.
-  const target = calendarParam?.trim() || defaultCalendar?.trim() || undefined;
+  // "all", or nothing, means the configured default calendar when there is one: the model sends "all"
+  // on its own, and a user who configured a default did not ask for every calendar (issue #4)
+  const wanted = calendarParam?.trim() || undefined;
+  const configured = defaultCalendar?.trim() || undefined;
+  const target = !wanted || isAllCalendars(wanted) ? configured : wanted;
   if (!target || isAllCalendars(target)) return calendarService.fetchAllEvents(timeRange);
   // A group of access rights rather than one name: "mine", "writable", "read-only". A calendar that
   // actually carries one of those names keeps it.
@@ -615,7 +617,7 @@ export function calendarParamDescription(defaultCalendar?: string): string {
   const groups =
     'Also "mine" (the calendars you own), "writable" (every calendar you may write to, your own included), ' +
     '"shared-write" (somebody else\'s calendars shared with write access) or "read-only" (where you may only read), ' +
-    'or "all" for every calendar. ' +
+    'or "all" for every calendar — or for the default calendar, when one is configured. ' +
     'A server that does not publish access rights answers a name or "all" only. ';
   return 'Calendar name to search in. ' + groups + defaultCalendarText(defaultCalendar);
 }
