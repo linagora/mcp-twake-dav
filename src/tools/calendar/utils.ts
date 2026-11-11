@@ -429,8 +429,8 @@ export function getEventsWithRecurrenceExpansion(
           return end;
         };
         const overlaps = (start: Date, end: Date) => (end > startDate || start >= startDate) && start < endDate;
-        // the exceptions this range lists through the occurrence they belong to
-        const listed = new Set<ICAL.Component>();
+        // the exceptions this range lists through the occurrence they belong to, by RECURRENCE-ID
+        const listed = new Set<string>();
 
         // Create EventDTO for each occurrence (preserving original fields, updating dates)
         for (const occurrenceDate of occurrences) {
@@ -456,7 +456,9 @@ export function getEventsWithRecurrenceExpansion(
             // For non-cancelled exceptions, use the exception's dates and summary
             const exceptionEvent = details.item;
             if (!overlaps(details.startDate.toJSDate(), details.endDate.toJSDate())) continue;
-            listed.add(exceptionVevent);
+            // by RECURRENCE-ID rather than by component: malformed data may hold two exceptions for
+            // one slot, and the second pass must not add either of them again
+            listed.add((exceptionVevent.getFirstPropertyValue('recurrence-id') as ICAL.Time).toString());
             allEvents.push({
               ...eventDTO,
               summary: exceptionEvent.summary || eventDTO.summary,
@@ -484,7 +486,8 @@ export function getEventsWithRecurrenceExpansion(
         // the expansion above never generated it here, and the exception holding it was never looked at.
         // Only the exceptions the loop above did not list are added, whatever their slot.
         for (const exception of exceptions) {
-          if (listed.has(exception)) continue;
+          const recurrenceId = exception.getFirstPropertyValue('recurrence-id') as ICAL.Time | null;
+          if (!recurrenceId || listed.has(recurrenceId.toString())) continue;
           const status = exception.getFirstPropertyValue('status');
           if (status && String(status).toUpperCase() === 'CANCELLED') continue;
           const moved = new ICAL.Event(exception);

@@ -78,6 +78,31 @@ describe('an occurrence moved to another day', () => {
     expect(events).toHaveLength(0);
   });
 
+  it('lists an all-day occurrence moved to another day', () => {
+    const allDay = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:jour@example.com
+DTSTART;VALUE=DATE:20230308
+DTEND;VALUE=DATE:20230309
+RRULE:FREQ=WEEKLY
+SUMMARY:Kiné
+END:VEVENT
+BEGIN:VEVENT
+UID:jour@example.com
+RECURRENCE-ID;VALUE=DATE:20261111
+DTSTART;VALUE=DATE:20261110
+DTEND;VALUE=DATE:20261111
+SUMMARY:Kiné
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = getEventsWithRecurrenceExpansion([{ ...raw[0], data: allDay }], { start: '2026-11-10T12:00:00Z', end: '2026-11-11T12:00:00Z' }, logger);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].allDay).toBe(true);
+  });
+
   it('keeps one entry when an exception only changes the title', () => {
     const retitled = ICS.replace('SUMMARY:Cours (déplacé)', 'SUMMARY:Cours (renommé)')
       .replace('DTSTART;TZID=Europe/Paris:20261110T150000', 'DTSTART;TZID=Europe/Paris:20261111T110000')
