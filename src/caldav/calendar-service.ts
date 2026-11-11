@@ -222,18 +222,7 @@ export class CalendarService {
       const own = this.calendarAccess(calendar);
       return own !== undefined && groups.includes(own);
     });
-    if (targets.length === 0) {
-      // say why, rather than blaming a group that the server never described
-      if (this.calendars.every((calendar) => this.calendarAccess(calendar) === undefined)) {
-        throw new Error(
-          'This calendar server does not publish the access rights of its calendars, so a group cannot be queried.\n\nFix: Use list_calendars, then name a calendar or use "all".'
-        );
-      }
-      const described = groups
-        .map((group) => (group === 'mine' ? 'you as owner' : group === 'write' ? 'write access shared by somebody else' : 'read-only access'))
-        .join(' or ');
-      throw new Error(`No calendar with ${described} was found.\n\nFix: Use list_calendars to see the calendars and their access.`);
-    }
+    if (targets.length === 0) throw this.noAccessCalendars(groups);
 
     const objects = await this.fetchEventsFrom(targets, timeRange);
 
@@ -323,6 +312,16 @@ export class CalendarService {
   }
 
   /**
+   * The error for a calendar name, or a group, that matches no calendar of the account
+   *
+   * @param name - what the caller asked for
+   */
+  private noCalendarFor(name: string): Error {
+    if (!isCalendarGroup(name)) return this.notFound(name);
+    return this.noAccessCalendars(CALENDAR_GROUPS[name.trim().toLowerCase()]);
+  }
+
+  /**
    * The calendars a name selects: all of them for "all" or nothing, the calendars of a group for a group name,
    * the one that carries the name otherwise
    */
@@ -337,6 +336,21 @@ export class CalendarService {
       const access = this.calendarAccess(calendar);
       return access !== undefined && groups.includes(access);
     });
+  }
+
+  /**
+   * The error for a group with no calendar in it, saying why rather than blaming the group
+   *
+   * @param groups - the access groups that were asked for
+   */
+  private noAccessCalendars(groups: CalendarAccess[]): Error {
+    if (this.calendars.every((calendar) => this.calendarAccess(calendar) === undefined)) {
+      return new Error('This calendar server does not publish the access rights of its calendars, so a group cannot be queried.\n\nFix: Use list_calendars, then name a calendar or use "all".');
+    }
+    const described = groups
+      .map((group) => (group === 'mine' ? 'you as owner' : group === 'write' ? 'write access shared by somebody else' : 'read-only access'))
+      .join(' or ');
+    return new Error(`No calendar with ${described} was found.\n\nFix: Use list_calendars to see the calendars and their access.`);
   }
 
   /** DAV_DEFAULT_CALENDAR, unless it is "all" or a group of access rights, which no calendar is called */
@@ -613,6 +627,7 @@ export class CalendarService {
     try {
       await this.listCalendars();
       const targets = this.calendarsFor(calendarName);
+      if (calendarName && targets.length === 0) throw this.noCalendarFor(calendarName);
       const filters = [
         {
           'comp-filter': {
@@ -733,9 +748,7 @@ export class CalendarService {
     // "all" means every calendar; a group is resolved to its calendars by calendarsFor()
     const wanted = calendarName === 'all' ? undefined : calendarName ?? this.configuredDefaultCalendar();
     const targets = this.calendarsFor(wanted);
-    if (wanted && targets.length === 0) {
-      throw this.notFound(wanted);
-    }
+    if (wanted && targets.length === 0) throw this.noCalendarFor(wanted);
     const icalTime = (iso: string) => `${new Date(iso).toISOString().slice(0, 19).replace(/[-:.]/g, '')}Z`;
     const filters = [
       {

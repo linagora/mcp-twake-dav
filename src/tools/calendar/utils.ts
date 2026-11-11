@@ -614,8 +614,6 @@ export async function resolveCalendarEvents(
   return calendarService.fetchAllEvents(timeRange);
 }
 
-
-
 /**
  * Description of the `calendar` parameter, shared by the query tools
  *

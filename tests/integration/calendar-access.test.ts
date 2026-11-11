@@ -133,7 +133,7 @@ describe('calendar access rights', () => {
   it('explains a server that does not publish the access rights', async () => {
     const blind = await startFakeDav(['Perso'], { withoutAccessRights: true });
     try {
-      const config = { DAV_URL: blind.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+      const config = { DAV_URL: blind.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_ORGANIZER_EMAIL: 'u@example.com' } as Config;
       const clients = await createDualClients(config, logger);
       const service = new CalendarService(clients.caldav, logger, config);
 
@@ -255,7 +255,7 @@ describe('calendar access rights', () => {
       const service = new CalendarService(clients.caldav, logger, config);
 
       named.requests.length = 0;
-      await service.findEventByUid('mine', 'mine').catch(() => null);
+      await service.findEventByUid('mine', 'mine');
       const queried = named.requests.filter((request) => request.method === 'REPORT').map((request) => request.url);
       expect(queried.length).toBeGreaterThan(0);
       expect(queried.every((url) => url.includes('/mine/'))).toBe(true);
@@ -264,10 +264,44 @@ describe('calendar access rights', () => {
     }
   });
 
+  it('says a calendar name or a group matches nothing, instead of "event not found"', async () => {
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+
+    // a misspelled name
+    await expect(service.findEventByUid('a', 'Persoo')).rejects.toThrow(/Calendar "Persoo" not found/);
+
+    // a group with no calendar in it: an account that shares nothing
+    const lonely = await startFakeDav(['Perso']);
+    try {
+      const lonelyConfig = { DAV_URL: lonely.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+      const lonelyClients = await createDualClients(lonelyConfig, logger);
+      const lonelyService = new CalendarService(lonelyClients.caldav, logger, lonelyConfig);
+      await expect(lonelyService.findEventByUid('a', 'shared-write')).rejects.toThrow(/No calendar with write access shared by somebody else/);
+    } finally {
+      await lonely.close();
+    }
+  });
+
+  it('says a group matches nothing on a server that publishes no rights', async () => {
+    const blind = await startFakeDav(['Perso'], { withoutAccessRights: true });
+    try {
+      const config = { DAV_URL: blind.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_ORGANIZER_EMAIL: 'u@example.com' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      await expect(service.findEventByUid('a', 'mine')).rejects.toThrow(/does not publish the access rights/);
+      await expect(service.listPendingInvitations(undefined, 'mine')).rejects.toThrow(/does not publish the access rights/);
+    } finally {
+      await blind.close();
+    }
+  });
+
   it('does not take an odd calendar name for a group', async () => {
     // "constructor" and "__proto__" are properties of every object: they must be read as calendar names
     for (const name of ['constructor', '__proto__']) {
-      await expect(call('get_todays_schedule', { calendar: name })).resolves.toMatch(/not found|Calendar/);
+      await expect(call('get_todays_schedule', { calendar: name })).resolves.toContain(`Calendar "${name}" not found`);
     }
   });
 
