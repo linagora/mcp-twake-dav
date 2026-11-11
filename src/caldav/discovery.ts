@@ -80,19 +80,12 @@ export async function discoverSchedulingInbox(
   logger: Logger
 ): Promise<string | null> {
   try {
+    // the properties themselves: tsdav wraps them in <propfind><prop>…</prop></propfind>
     const response = await client.propfind({
       url: principalUrl,
       depth: '0',
       props: {
-        propfind: {
-          _attributes: {
-            'xmlns:d': 'DAV:',
-            'xmlns:c': 'urn:ietf:params:xml:ns:caldav',
-          },
-          prop: {
-            'c:schedule-inbox-URL': {},
-          },
-        },
+        'c:schedule-inbox-URL': {},
       },
     });
 
