@@ -136,7 +136,7 @@ export function registerAllTools(
   // Register list_calendars tool inline (CAL-05)
   server.tool(
     'list_calendars',
-    'List the calendars of the account, grouped by access: your own, shared with write access, and shared read-only.',
+    'List the calendars of the account, grouped by access: your own, shared with write access, and the ones you may only read.',
     {},
     {
       readOnlyHint: true,
@@ -186,13 +186,13 @@ export function registerAllTools(
           const counts = [
             `${groups.mine.length} yours`,
             `${groups.write.length} shared with write access`,
-            `${groups.read.length} shared read-only`,
+            `${groups.read.length} read-only`,
             ...(unknown.length > 0 ? [`${unknown.length} with access rights unknown`] : []),
           ];
           sections.push(`Available calendars (${calendars.length}): ${counts.join(', ')}`);
           if (groups.mine.length > 0) sections.push(`My calendars (${groups.mine.length}):\n\n${render(groups.mine)}`);
           if (groups.write.length > 0) sections.push(`Shared with write access (${groups.write.length}):\n\n${render(groups.write)}`);
-          if (groups.read.length > 0) sections.push(`Shared read-only (${groups.read.length}):\n\n${render(groups.read)}`);
+          if (groups.read.length > 0) sections.push(`Read-only (${groups.read.length}):\n\n${render(groups.read)}`);
           if (unknown.length > 0) sections.push(`Access rights unknown (${unknown.length}):\n\n${render(unknown)}`);
           sections.push('Use calendar: "mine", "writable" (yours and the ones shared with write access), "shared-write" or "read-only" to query one group, "all" for every calendar.');
         }

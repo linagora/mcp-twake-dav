@@ -176,14 +176,14 @@ Without `DAV_HREF_PREFIX`, discovery fails with `cannot find homeUrl` or calenda
 
 #### Your calendars and the ones shared with you
 
-An account often sees more than its own calendars: colleagues share theirs, read-only or with write access. `list_calendars` groups them, from the `DAV:current-user-privilege-set` and `DAV:owner` the server publishes (RFC 3744):
+An account often sees more than its own calendars: colleagues share theirs, read-only or with write access. `list_calendars` groups them, from the `DAV:current-user-privilege-set`, `DAV:share-access` and `DAV:owner` properties the server publishes (RFC 3744):
 
 ```text
-Available calendars (15): 2 yours, 3 shared with write access, 10 shared read-only
+Available calendars (15): 2 yours, 3 shared with write access, 10 read-only
 
 My calendars (2): …
 Shared with write access (3): …
-Shared read-only (10): …
+Read-only (10): …
 ```
 
 The query tools take the name of a group, so an assistant asked "what's on my calendar?" does not list other people's meetings:
@@ -195,9 +195,15 @@ get_todays_schedule(calendar: "shared-write") # somebody else's calendars shared
 get_todays_schedule(calendar: "read-only")    # only the ones shared with you for reading
 ```
 
-`calendar: "all"` still queries everything, and a name still targets one calendar — a calendar that really is called `mine` keeps its own name. The groups also work as `DAV_DEFAULT_CALENDAR`, so an assistant reads your agenda unless you ask for another calendar.
+A group can also be the default calendar (`DAV_DEFAULT_CALENDAR=mine`): an assistant then reads the calendars you own unless you ask for another one, and `calendar: "all"` follows that default as any other name does. `DAV_DEFAULT_CALENDAR=all` means no default at all. A name still targets one calendar — a calendar that really is called `mine` keeps its own name.
 
-The rights come from `DAV:current-user-privilege-set`, from `DAV:share-access` when the server publishes it (a calendar shared with write access, which SabreDAV still names the account as owning), and from `DAV:owner` to tell your own calendars from the ones shared with write access. A server that publishes none of them gets the plain list, and asking for a group then says so instead of answering "No calendar with…": name a calendar, or use `"all"`.
+The rights come from three properties:
+
+- `DAV:current-user-privilege-set` says whether the account may write: without `DAV:write`, `DAV:write-content` or `DAV:all`, the calendar is read-only;
+- `DAV:share-access`, when the server publishes it, says that a calendar is shared with the account, and with which access — it wins over the privileges, and it is what tells a colleague's calendar shared with write access from one you own (SabreDAV names the receiving account as its owner);
+- `DAV:owner` separates your own calendars from somebody else's shared with write access, on servers that do not publish the sharing.
+
+A server that publishes none of them gets the plain list, and asking for a group then says so instead of answering "No calendar with…": name a calendar, or use `"all"`. Calendars whose rights the server gives for some of them only are listed apart, under *Access rights unknown*.
 
 ## Use it with your assistant
 

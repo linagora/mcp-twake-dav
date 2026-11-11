@@ -52,6 +52,9 @@ describe('classifyAccess', () => {
     expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', WRITABLE, 'read-write')).toBe('write');
     expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', WRITABLE, 'read')).toBe('read');
     expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', WRITABLE)).toBe('mine');
+    // a sharing access wins over a privilege that contradicts it
+    expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', WRITABLE, 'read')).toBe('read');
+    expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', READ_ONLY, 'read-write')).toBe('read');
   });
 
   it('does not mistake write-properties for write access', () => {
@@ -80,9 +83,13 @@ describe('shareAccess', () => {
     expect(shareAccess({ shareAccess: { read: {} } })).toBe('read');
   });
 
-  it('says nothing when the server does not publish it', () => {
+  it('says nothing when the server does not publish it, or says the calendar is not shared', () => {
     expect(shareAccess(undefined)).toBeUndefined();
     expect(shareAccess({ displayname: 'XG' })).toBeUndefined();
+    // Twake Calendar answers not-shared for every calendar of the account
+    expect(shareAccess({ '{DAV:}shareAccess': { 'not-shared': {} } })).toBeUndefined();
+    // an unknown value is not read as a share either
+    expect(shareAccess({ '{DAV:}shareAccess': { 'shared-owner': {} } })).toBeUndefined();
   });
 });
 

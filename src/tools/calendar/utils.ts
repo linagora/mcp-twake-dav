@@ -598,9 +598,11 @@ export async function resolveCalendarEvents(
   // provides a different calendar name.  The LLM often sends "all" by default
   // which would bypass the user's configured filter — ignore "all" when a
   // default is set so only the user's own calendar is queried.
+  // a default calendar of "all" means no default at all
+  const configured = defaultCalendar?.trim().toLowerCase() === 'all' ? undefined : defaultCalendar;
   const target = calendarParam === 'all'
-    ? (defaultCalendar || undefined)
-    : (calendarParam || defaultCalendar);
+    ? configured
+    : (calendarParam || configured);
   if (target) {
     // A group of access rights rather than one name: "mine", "writable", "read-only". A calendar
     // that actually carries one of those names keeps it.
@@ -630,8 +632,8 @@ const ACCESS_GROUPS: Record<string, CalendarAccess[]> = {
 export function calendarParamDescription(defaultCalendar?: string): string {
   const groups =
     'Also "mine" (the calendars you own), "writable" (every calendar you may write to, your own included), ' +
-    '"shared-write" (somebody else\'s calendars shared with write access) or "read-only" (shared with you for reading), ' +
-    'or "all" for every calendar. ';
+    '"shared-write" (somebody else\'s calendars shared with write access) or "read-only" (where you may only read), ' +
+    'or "all" for every calendar. A server that does not publish access rights answers a name or "all" only. ';
   return 'Calendar name to search in. ' + groups + (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to all calendars.');
 }
 

@@ -61,15 +61,15 @@ describe('calendar access rights', () => {
   it('lists the calendars in three groups', async () => {
     const text = await call('list_calendars');
 
-    expect(text).toContain('Available calendars (3): 1 yours, 1 shared with write access, 1 shared read-only');
+    expect(text).toContain('Available calendars (3): 1 yours, 1 shared with write access, 1 read-only');
     expect(text).toContain('My calendars (1):');
     expect(text).toContain('Shared with write access (1):');
-    expect(text).toContain('Shared read-only (1):');
+    expect(text).toContain('Read-only (1):');
 
     // each name sits in its own section
     const mine = text.slice(text.indexOf('My calendars'), text.indexOf('Shared with write access'));
-    const write = text.slice(text.indexOf('Shared with write access'), text.indexOf('Shared read-only'));
-    const read = text.slice(text.indexOf('Shared read-only'), text.indexOf('Use calendar:'));
+    const write = text.slice(text.indexOf('Shared with write access'), text.indexOf('Read-only ('));
+    const read = text.slice(text.indexOf('Read-only'), text.indexOf('Use calendar:'));
     expect(mine).toContain('Perso');
     expect(write).toContain('Team');
     expect(read).toContain('Shared');

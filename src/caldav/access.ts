@@ -107,9 +107,11 @@ export function classifyAccess(
   privileges: string[],
   shared: 'read' | 'read-write' | undefined = undefined
 ): CalendarAccess {
+  // what the server says about the sharing wins: a calendar shared read-only stays read-only,
+  // even if it also carries a write privilege
+  if (shared === 'read') return 'read';
   if (!privileges.some((name) => WRITE_PRIVILEGES.has(name))) return 'read';
   // a calendar the server describes as shared was not owned by the account, whoever DAV:owner names
-  if (shared === 'read') return 'read';
   if (shared === 'read-write') return 'write';
   return !owner || !principal || samePrincipal(owner, principal) ? 'mine' : 'write';
 }
@@ -137,17 +139,22 @@ export async function discoverCalendarAccess(
   const first = calendars[0]?.url;
   if (!first) return sharing;
 
-  const home = new URL('..', first.endsWith('/') ? first : `${first}/`).href;
-  const responses = await client.propfind({
-    url: home,
-    depth: '1',
-    props: {
-      'd:displayname': {},
-      'd:owner': {},
-      'd:current-user-principal': {},
-      'd:current-user-privilege-set': {},
-    },
-  });
+  // one home usually holds every calendar, but an account may have several: ask each
+  const homes = [...new Set(calendars.map((calendar) => new URL('..', calendar.url.endsWith('/') ? calendar.url : `${calendar.url}/`).href))];
+  const responses: Array<{ href?: string; props?: Record<string, unknown> }> = [];
+  for (const home of homes) {
+    responses.push(...(await client.propfind({
+      url: home,
+      depth: '1',
+      props: {
+        'd:displayname': {},
+        'd:owner': {},
+        'd:current-user-principal': {},
+        'd:current-user-privilege-set': {},
+        'd:share-access': {},
+      },
+    })));
+  }
 
   const principal = responses
     .map((response) => (response.props?.currentUserPrincipal as { href?: string } | undefined)?.href)
@@ -170,6 +177,6 @@ export async function discoverCalendarAccess(
     if (typeof name === 'string' && name && names.get(name.toLowerCase()) === 1) sharing.set(`name:${name.toLowerCase()}`, entry);
   }
 
-  logger.info({ count: sharing.size, home }, 'Discovered calendar access rights');
+  logger.info({ count: sharing.size, homes }, 'Discovered calendar access rights');
   return sharing;
 }
