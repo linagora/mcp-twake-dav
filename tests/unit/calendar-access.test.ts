@@ -145,3 +145,62 @@ describe('CalendarService: the first discovery', () => {
     expect(service.calendarAccess(calendars[0])).toBe('mine');
   });
 });
+
+describe('CalendarService: refreshCalendars', () => {
+  const logger = pino({ level: 'silent' });
+  const calendars = [{ url: 'https://dav.example.com/calendars/u1/A/', displayName: 'A' }];
+  const rights = [
+    {
+      href: '/calendars/u1/A/',
+      props: {
+        displayname: 'A',
+        owner: { href: '/principals/u1/' },
+        currentUserPrincipal: { href: '/principals/u1/' },
+        currentUserPrivilegeSet: { privilege: [{ read: {} }, { write: {} }] },
+      },
+    },
+  ];
+
+  it('discovers the calendars on a fresh service, then again on each refresh', async () => {
+    let discoveries = 0;
+    const client = {
+      fetchCalendars: async () => {
+        discoveries++;
+        return calendars;
+      },
+      propfind: async () => rights,
+      fetchCalendarObjects: async () => [],
+    } as unknown as DAVClientType;
+
+    const service = new CalendarService(client, logger, {} as Config);
+    await expect(service.refreshCalendars()).resolves.toHaveLength(1);
+    expect(discoveries).toBe(1);
+    await service.refreshCalendars();
+    expect(discoveries).toBe(2);
+    expect(service.calendarAccess(calendars[0])).toBe('mine');
+  });
+
+  it('waits for a discovery already running before starting its own', async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    let discoveries = 0;
+    const client = {
+      fetchCalendars: async () => {
+        discoveries++;
+        return calendars;
+      },
+      propfind: () => (discoveries === 1 ? new Promise((resolve) => { answer = resolve; }) : Promise.resolve(rights)),
+      fetchCalendarObjects: async () => [],
+    } as unknown as DAVClientType;
+
+    const service = new CalendarService(client, logger, {} as Config);
+    const first = service.listCalendars();
+    const refreshed = service.refreshCalendars();
+
+    // let the first discovery reach its PROPFIND
+    await new Promise((resolve) => setImmediate(resolve));
+    answer(rights);
+    await first;
+    await expect(refreshed).resolves.toHaveLength(1);
+    expect(service.calendarAccess(calendars[0])).toBe('mine');
+  });
+});

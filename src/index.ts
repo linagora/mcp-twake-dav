@@ -50,7 +50,10 @@ async function main() {
     logger.info('Calendar and AddressBook services initialized');
 
     // Step 6: Initialize MCP server with tools registered
-    const server = createServer(calendarService, addressBookService, logger, config.DAV_DEFAULT_CALENDAR, config.DAV_DEFAULT_ADDRESSBOOK, config.USER_TIMEZONE, {
+    // a default calendar of "all" means no default at all, for the reading tools and the writing ones alike
+    const configuredDefault = config.DAV_DEFAULT_CALENDAR?.trim();
+    const defaultCalendar = configuredDefault && configuredDefault.toLowerCase() !== 'all' ? configuredDefault : undefined;
+    const server = createServer(calendarService, addressBookService, logger, defaultCalendar, config.DAV_DEFAULT_ADDRESSBOOK, config.USER_TIMEZONE, {
       DAV_USERNAME: config.DAV_USERNAME,
       DAV_ORGANIZER_EMAIL: config.DAV_ORGANIZER_EMAIL,
       DAV_ORGANIZER_NAME: config.DAV_ORGANIZER_NAME,

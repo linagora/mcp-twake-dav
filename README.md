@@ -130,7 +130,7 @@ The server is configured through environment variables, usually set in your MCP 
 
 | Variable | Description | Default |
 |---|---|---|
-| `DAV_DEFAULT_CALENDAR` | Calendar used when the assistant does not name one (`"all"` in a tool call still searches every calendar) | all calendars |
+| `DAV_DEFAULT_CALENDAR` | Calendar used when the assistant does not name one (`"all"` in a tool call still searches every calendar; a group name works for reading, see [Your calendars and the ones shared with you](#your-calendars-and-the-ones-shared-with-you)) | all calendars |
 | `DAV_DEFAULT_ADDRESSBOOK` | Address book used by default | all address books |
 | `DAV_ORGANIZER_EMAIL` / `DAV_ORGANIZER_NAME` | Organizer written in events that have attendees; your address as an attendee for `list_invitations` and `respond_to_invitation` (required with an SSO token) | none |
 | `DAV_RECURRING_WRITES` | `false` = `update_event` / `delete_event` refuse recurring series and occurrences | `true` |
@@ -176,7 +176,7 @@ Without `DAV_HREF_PREFIX`, discovery fails with `cannot find homeUrl` or calenda
 
 #### Your calendars and the ones shared with you
 
-An account often sees more than its own calendars: colleagues share theirs, read-only or with write access. `list_calendars` groups them, from the `DAV:current-user-privilege-set`, `DAV:share-access` and `DAV:owner` properties the server publishes (RFC 3744):
+An account often sees more than its own calendars: colleagues share theirs, read-only or with write access. `list_calendars` groups them, from the `DAV:current-user-privilege-set` and `DAV:owner` properties of RFC 3744 and from `DAV:share-access`, which the CalDAV sharing extension (`draft-pot-webdav-resource-sharing`) adds:
 
 ```text
 Available calendars (15): 2 yours, 3 shared with write access, 10 read-only
@@ -196,6 +196,8 @@ get_todays_schedule(calendar: "read-only")    # only the ones shared with you fo
 ```
 
 A group can also be the default calendar (`DAV_DEFAULT_CALENDAR=mine`): an assistant then reads the calendars you own unless you ask for another one, and `calendar: "all"` follows that default as any other name does. `DAV_DEFAULT_CALENDAR=all` means no default at all. A name still targets one calendar — a calendar that really is called `mine` keeps its own name.
+
+Groups are for reading: writing into several calendars at once has no meaning, so `create_event`, `update_event`, `delete_event`, `add_alarm` and `remove_alarm` need a calendar name, and say so when the default is a group.
 
 The rights come from three properties:
 

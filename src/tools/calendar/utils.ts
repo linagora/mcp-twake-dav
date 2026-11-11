@@ -603,12 +603,13 @@ export async function resolveCalendarEvents(
   const target = calendarParam === 'all'
     ? configured
     : (calendarParam || configured);
-  if (target) {
+  const wanted = target?.trim();
+  if (wanted) {
     // A group of access rights rather than one name: "mine", "writable", "read-only". A calendar
     // that actually carries one of those names keeps it.
-    const access = ACCESS_GROUPS[target.trim().toLowerCase()];
-    if (access && !(await calendarService.hasCalendarNamed(target))) return calendarService.fetchEventsByAccess(access, timeRange);
-    return calendarService.fetchEventsByCalendarName(target, timeRange);
+    const access = ACCESS_GROUPS[wanted.toLowerCase()];
+    if (access && !(await calendarService.hasCalendarNamed(wanted))) return calendarService.fetchEventsByAccess(access, timeRange);
+    return calendarService.fetchEventsByCalendarName(wanted, timeRange);
   }
   return calendarService.fetchAllEvents(timeRange);
 }

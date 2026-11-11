@@ -24,6 +24,9 @@ import { transformInvitation } from '../transformers/invitation.js';
 import { updateAttendeePartstat } from '../transformers/event-builder.js';
 import type { EventDTO, InvitationDTO } from '../types/dtos.js';
 
+/** The names the reading tools accept for a group of calendars */
+const GROUP_NAMES = ['mine', 'writable', 'shared-write', 'read-only', 'readonly'];
+
 /**
  * ISO 8601 time range for server-side calendar filtering
  */
@@ -156,6 +159,10 @@ export class CalendarService {
   async refreshCalendars(): Promise<DAVCalendar[]> {
     this.logger.info('Refreshing calendar list');
 
+    // Let a discovery already running finish: two of them writing at once would leave the
+    // service with one calendar list and the rights of another
+    await this.loading?.catch(() => undefined);
+
     // Re-discover calendars and their rights
     this.loaded = false;
     this.loading = undefined;
@@ -188,7 +195,7 @@ export class CalendarService {
    */
   async hasCalendarNamed(name: string): Promise<boolean> {
     await this.listCalendars();
-    return this.calendars.some((calendar) => String(calendar.displayName || '').toLowerCase() === name.toLowerCase());
+    return this.calendars.some((calendar) => String(calendar.displayName || '').toLowerCase() === name.trim().toLowerCase());
   }
 
   /**
@@ -319,6 +326,21 @@ export class CalendarService {
   }
 
   /**
+   * The error for a name that matches no calendar, saying why when it is a group of access rights
+   *
+   * Reading tools accept "mine", "writable", "shared-write" and "read-only"; writing into several
+   * calendars at once has no meaning, so a write needs a calendar name.
+   */
+  private notFound(name: string): Error {
+    if (GROUP_NAMES.includes(name.trim().toLowerCase())) {
+      return new Error(
+        `"${name}" is a group of calendars, not a calendar: name the calendar to use.\n\nFix: Use list_calendars to see the names; the groups work for reading only.`
+      );
+    }
+    return new Error(`Calendar "${name}" not found.\n\nFix: Use list_calendars to see the available names.`);
+  }
+
+  /**
    * Fetch events from a single calendar identified by display name (case-insensitive)
    *
    * Looks up the calendar by displayName among all discovered calendars.
@@ -331,10 +353,10 @@ export class CalendarService {
   async fetchEventsByCalendarName(name: string, timeRange?: TimeRange): Promise<DAVCalendarObject[]> {
     await this.listCalendars();
     const match = this.calendars.find(
-      (cal) => (String(cal.displayName || '')).toLowerCase() === name.toLowerCase()
+      (cal) => (String(cal.displayName || '')).toLowerCase() === name.trim().toLowerCase()
     );
     if (!match) {
-      throw new Error(`Calendar "${name}" not found.\n\nFix: Use list_calendars to see the available names.`);
+      throw this.notFound(name);
     }
     return this.fetchEventsFrom([match], timeRange);
   }
@@ -408,10 +430,10 @@ export class CalendarService {
 
     if (calendarName) {
       const match = this.calendars.find(
-        (cal) => String(cal.displayName || '').toLowerCase() === calendarName.toLowerCase()
+        (cal) => String(cal.displayName || '').toLowerCase() === calendarName.trim().toLowerCase()
       );
       if (!match) {
-        throw new Error(`Calendar "${calendarName}" not found`);
+        throw this.notFound(calendarName);
       }
       targetCalendar = match;
     } else {
@@ -693,12 +715,14 @@ export class CalendarService {
     const email = this.attendeeEmail();
     const range = timeRange ?? { start: new Date().toISOString(), end: new Date(Date.now() + 30 * 86400000).toISOString() };
     await this.listCalendars();
-    const wanted = calendarName === 'all' ? undefined : calendarName || this.config.DAV_DEFAULT_CALENDAR;
+    const configured = this.config.DAV_DEFAULT_CALENDAR?.trim();
+    const groupDefault = configured !== undefined && GROUP_NAMES.includes(configured.toLowerCase());
+    const wanted = !calendarName || calendarName === 'all' ? (groupDefault ? undefined : configured) : calendarName;
     const targets = wanted
-      ? this.calendars.filter((cal) => String(cal.displayName || '').toLowerCase() === wanted.toLowerCase())
+      ? this.calendars.filter((cal) => String(cal.displayName || '').toLowerCase() === wanted.trim().toLowerCase())
       : this.calendars;
     if (wanted && targets.length === 0) {
-      throw new Error(`Calendar "${wanted}" not found.\n\nFix: Use list_calendars to see the available names.`);
+      throw this.notFound(wanted);
     }
     const icalTime = (iso: string) => `${new Date(iso).toISOString().slice(0, 19).replace(/[-:.]/g, '')}Z`;
     const filters = [

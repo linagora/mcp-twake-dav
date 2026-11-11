@@ -172,6 +172,32 @@ describe('calendar access rights', () => {
     }
   });
 
+  it('refuses to write into a group, saying why', async () => {
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+
+    await expect(service.createEvent('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n', 'mine')).rejects.toThrow(/is a group of calendars[\s\S]*reading only/);
+  });
+
+  it('takes a default calendar of "all" as no default at all', async () => {
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+    const server = createServer(service, new AddressBookService(clients.carddav, logger), logger, 'all');
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+    await scoped.connect(clientTransport);
+
+    const answer = await scoped.callTool({ name: 'get_todays_schedule', arguments: {} });
+    const text = (answer.content as Array<{ text: string }>).map((c) => c.text).join('\n');
+    expect(text).toContain('Event of Perso');
+    expect(text).toContain('Event of Shared');
+    expect(text).toContain('Event of Team');
+    await scoped.close();
+  });
+
   it('names the empty group and how to list the calendars', async () => {
     const lonely = await startFakeDav(['Perso']);
     try {

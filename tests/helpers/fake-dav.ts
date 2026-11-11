@@ -35,13 +35,15 @@ export interface FakeDavOptions {
 const PRINCIPAL = '<d:href>/principals/u1/</d:href>';
 
 /** DAV:owner, DAV:current-user-principal and DAV:current-user-privilege-set of one calendar */
-function accessProps(name: string, options: FakeDavOptions): string {
+function accessProps(name: string, options: FakeDavOptions, asked: (property: string) => boolean): string {
   if (options.withoutAccessRights) return '';
   const owner = options.sharedWithWrite?.includes(name) ? '<d:href>/principals/team-1/</d:href>' : PRINCIPAL;
   const privileges = options.readOnly?.includes(name)
     ? '<d:privilege><d:read/></d:privilege><d:privilege><d:read-free-busy/></d:privilege>'
     : '<d:privilege><d:read/></d:privilege><d:privilege><d:write/></d:privilege><d:privilege><d:write-content/></d:privilege>';
-  const shared = options.shareAccess?.[name];
+  // a WebDAV server only returns the properties of the request: so does this one, which is
+  // what proves that the code asks for DAV:share-access
+  const shared = asked('share-access') ? options.shareAccess?.[name] : undefined;
   const shareAccessProp = shared ? `<d:share-access><d:${shared}/></d:share-access>` : '';
   return `<d:owner>${owner}</d:owner><d:current-user-principal>${PRINCIPAL}</d:current-user-principal><d:current-user-privilege-set>${privileges}</d:current-user-privilege-set>${shareAccessProp}`;
 }
@@ -79,7 +81,7 @@ function discovery(req: DavRequest, calendars: string[], options: FakeDavOptions
     const list = calendars.map((c) =>
       propResponse(
         `/calendars/u1/${c}/`,
-        `<d:displayname>${c}</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VEVENT"/></c:supported-calendar-component-set><cs:getctag>1</cs:getctag>${accessProps(c, options)}`
+        `<d:displayname>${c}</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VEVENT"/></c:supported-calendar-component-set><cs:getctag>1</cs:getctag>${accessProps(c, options, prop)}`
       )
     );
     return { status: 207, body: multistatus(list.join('')), headers: XML };

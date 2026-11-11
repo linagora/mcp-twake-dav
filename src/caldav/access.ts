@@ -142,23 +142,33 @@ export async function discoverCalendarAccess(
   // one home usually holds every calendar, but an account may have several: ask each
   const homes = [...new Set(calendars.map((calendar) => new URL('..', calendar.url.endsWith('/') ? calendar.url : `${calendar.url}/`).href))];
   const responses: Array<{ href?: string; props?: Record<string, unknown> }> = [];
+  let failure: unknown;
   for (const home of homes) {
-    responses.push(...(await client.propfind({
-      url: home,
-      depth: '1',
-      props: {
-        'd:displayname': {},
-        'd:owner': {},
-        'd:current-user-principal': {},
-        'd:current-user-privilege-set': {},
-        'd:share-access': {},
-      },
-    })));
+    try {
+      responses.push(...(await client.propfind({
+        url: home,
+        depth: '1',
+        props: {
+          'd:displayname': {},
+          'd:owner': {},
+          'd:current-user-principal': {},
+          'd:current-user-privilege-set': {},
+          'd:share-access': {},
+        },
+      })));
+    } catch (err) {
+      // one home that refuses must not hide the rights of the others
+      logger.warn({ err, home }, 'Calendar access rights not available for one calendar home');
+      failure ??= err;
+    }
   }
+  // every home failed: the caller retries, and leaves the rights unknown if it keeps failing
+  if (responses.length === 0 && failure !== undefined) throw failure;
 
-  const principal = responses
-    .map((response) => (response.props?.currentUserPrincipal as { href?: string } | undefined)?.href)
-    .find((href) => !!href);
+  const principal =
+    responses.map((response) => (response.props?.currentUserPrincipal as { href?: string } | undefined)?.href).find((href) => !!href) ??
+    // some servers give the principal of the account with the client, not with the calendar home
+    (client as { account?: { principalUrl?: string } }).account?.principalUrl;
 
   // two calendars of the same name are only reachable by URL
   const names = new Map<string, number>();
@@ -167,12 +177,16 @@ export async function discoverCalendarAccess(
     if (typeof name === 'string' && name) names.set(name.toLowerCase(), (names.get(name.toLowerCase()) ?? 0) + 1);
   }
 
+  // the home itself, the inbox and the outbox answer the same properties: only the calendars count
+  const discovered = new Set(calendars.map((calendar) => calendarKey(calendar.url)));
+
   for (const response of responses) {
+    if (!response.href || !discovered.has(calendarKey(response.href))) continue;
     const privileges = privilegeNames(response.props?.currentUserPrivilegeSet);
-    if (privileges.length === 0) continue; // the server does not tell, or this response is not a calendar
+    if (privileges.length === 0) continue; // the server does not tell
     const owner = (response.props?.owner as { href?: string } | undefined)?.href;
     const entry: CalendarSharing = { access: classifyAccess(owner, principal, privileges, shareAccess(response.props)), ...(owner ? { owner } : {}) };
-    if (response.href) sharing.set(calendarKey(response.href), entry);
+    sharing.set(calendarKey(response.href), entry);
     const name = response.props?.displayname;
     if (typeof name === 'string' && name && names.get(name.toLowerCase()) === 1) sharing.set(`name:${name.toLowerCase()}`, entry);
   }
