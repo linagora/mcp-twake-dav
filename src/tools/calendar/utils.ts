@@ -308,6 +308,29 @@ export function searchEventsByAttendee(events: EventDTO[], name: string): EventD
 const MAX_OCCURRENCES_PER_SERIES = 10_000;
 
 /**
+ * Express an occurrence in the time frame of the series' own DTSTART
+ *
+ * RFC 5545 lets the RECURRENCE-ID of an exception be UTC ("…Z"), qualified with a
+ * TZID, or floating, and ical.js only matches an occurrence to an exception when
+ * both are read in the same frame. Google and Twake Calendar write TZID-qualified
+ * values; comparing occurrences converted to UTC made every one of them miss, so
+ * moved and cancelled instances were reported at their original slot.
+ *
+ * @param occurrence - instant of the occurrence, as expanded from the RRULE
+ * @param zone - ICAL zone of the series' DTSTART (undefined when the event has none)
+ * @returns the occurrence as an ICAL.Time, in the frame the RECURRENCE-ID uses
+ */
+function occurrenceInZone(occurrence: Date, zone: ICAL.Timezone | undefined): ICAL.Time {
+  if (!zone || zone === ICAL.Timezone.localTimezone || zone.tzid === 'floating') {
+    // floating times: ical.js reads and writes them in the timezone of the machine
+    return ICAL.Time.fromJSDate(occurrence, false);
+  }
+
+  const utc = ICAL.Time.fromJSDate(occurrence, true);
+  return zone === ICAL.Timezone.utcTimezone || zone.tzid === 'UTC' ? utc : utc.convertToZone(zone);
+}
+
+/**
  * Get events with recurrence expansion
  *
  * Transforms raw DAVCalendarObject array into EventDTOs, expanding recurring events
@@ -373,6 +396,11 @@ export function getEventsWithRecurrenceExpansion(
         // Create ICAL.Event with explicit exceptions
         const icalEvent = new ICAL.Event(vevent, { exceptions });
 
+        // The zone the series is written in: an occurrence must be compared with the
+        // RECURRENCE-ID values in their own time frame (see below).
+        const seriesStart = vevent.getFirstProperty('dtstart')?.getFirstValue() as ICAL.Time | null;
+        const seriesZone = seriesStart?.zone;
+
         // Calculate event duration for occurrence generation
         const duration = eventDTO.endDate.getTime() - eventDTO.startDate.getTime();
 
@@ -401,9 +429,13 @@ export function getEventsWithRecurrenceExpansion(
         for (const occurrenceDate of occurrences) {
           // Check if this occurrence has an exception (RECURRENCE-ID)
           // This handles cancelled instances that use RECURRENCE-ID + STATUS=CANCELLED
-          // IMPORTANT: Use 'true' to create UTC time, matching the RECURRENCE-ID format
-          const occurrenceTime = ICAL.Time.fromJSDate(occurrenceDate, true);
-          const details = icalEvent.getOccurrenceDetails(occurrenceTime);
+          // The occurrence is compared in the series' own time frame: RECURRENCE-ID
+          // values are UTC ("Z"), carry a TZID, or float. Comparing an occurrence
+          // converted to UTC only ever matched the first kind, which left moved and
+          // cancelled instances of the other two reported at their original slot.
+          const details = icalEvent.getOccurrenceDetails(
+            occurrenceInZone(occurrenceDate, seriesZone)
+          );
 
           // If this occurrence has an exception, check if it's cancelled
           if (details.item !== icalEvent) {
