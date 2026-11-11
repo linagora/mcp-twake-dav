@@ -128,7 +128,7 @@ export function registerCreateEventTool(
           };
         }
 
-        // Resolve target calendar. "all" and a group name calendars, not one calendar: say so before
+        // Resolve target calendar. "all" and a group name several calendars, not one: say so before
         // asking for approval, rather than failing once the user has accepted the write. A calendar
         // that really carries one of those names keeps it.
         const resolvedCalendar = params.calendar || defaultCalendar;
@@ -138,7 +138,7 @@ export function registerCreateEventTool(
             content: [
               {
                 type: 'text' as const,
-                text: '"all" means every calendar, not one: name the calendar to create the event in.\n\nFix: Use list_calendars to see the calendars.',
+                text: '"all" does not name a calendar: name the calendar to create the event in.\n\nFix: Use list_calendars to see the calendars.',
               },
             ],
             isError: true,

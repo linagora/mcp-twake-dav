@@ -371,6 +371,28 @@ describe('calendar access rights', () => {
     await scoped.close();
   });
 
+  it('makes the tools by UID search the default calendar for "all", and say where they looked', async () => {
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_DEFAULT_CALENDAR: 'mine', DAV_APPROVAL: 'client' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+    const server = createServer(service, new AddressBookService(clients.carddav, logger), logger, 'mine', undefined, undefined, { DAV_APPROVAL: 'client' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+    await scoped.connect(clientTransport);
+
+    // the event lives in the team calendar only: "all" reads "mine", so it is not found, and the
+    // message says where it looked
+    dav.requests.length = 0;
+    const answer = await scoped.callTool({ name: 'update_event', arguments: { uid: 'Team', title: 'Point' } });
+    const text = (answer.content as Array<{ text: string }>).map((content) => content.text).join('\n');
+    expect(text).toContain('in the calendar "mine"');
+    const queried = dav.requests.filter((request) => request.method === 'REPORT').map((request) => request.url);
+    expect(queried.every((url) => !url.includes('/Team/') && !url.includes('/Shared/'))).toBe(true);
+
+    await scoped.close();
+  });
+
   it('reads "all" as every calendar when no default calendar is set', async () => {
     const text = await call('get_todays_schedule', { calendar: 'ALL' });
     expect(text).toContain('Event of Perso');

@@ -15,7 +15,6 @@ import * as chrono from 'chrono-node';
 import ICAL from 'ical.js';
 import { approverFor } from '../../approval.js';
 import { defaultCalendarText } from './utils.js';
-import { isAllCalendars } from '../../caldav/access.js';
 
 
 /** True when the event is a recurring series or an occurrence of one. */
@@ -49,7 +48,7 @@ export function registerUpdateEventTool(
       description: z.string().optional().describe('New event description'),
       location: z.string().optional().describe('New event location'),
       calendar: z.string().optional().describe(
-        'Calendar name to search in. Use "all" to search all calendars. ' +
+        'Calendar name to search in, or "all" (which uses the default calendar when one is configured). ' +
         defaultCalendarText(defaultCalendar) + ' A group name searches the calendars of that group.'
       ),
       instanceDate: z.string().optional().describe(
@@ -87,10 +86,8 @@ export function registerUpdateEventTool(
         }
 
         // Resolve target calendar
-        // "all" and no name both mean the configured default calendar, when there is one
-        const resolvedCalendar = isAllCalendars(params.calendar)
-          ? defaultCalendar
-          : (params.calendar || defaultCalendar || undefined);
+        // the same rule as everywhere: a name as it comes, "all" and no name as the configured default
+        const resolvedCalendar = calendarService.resolveCalendarName(params.calendar ?? defaultCalendar);
 
         // Find event by UID
         const event = await calendarService.findEventByUid(params.uid, resolvedCalendar);
@@ -99,7 +96,7 @@ export function registerUpdateEventTool(
             content: [
               {
                 type: 'text' as const,
-                text: `Event not found with UID: ${params.uid}`,
+                text: `Event not found with UID: ${params.uid}${resolvedCalendar ? ` in the calendar "${resolvedCalendar}"` : ' in any calendar'}`,
               },
             ],
             isError: true,

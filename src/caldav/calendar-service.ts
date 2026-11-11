@@ -611,7 +611,7 @@ export class CalendarService {
    * The model sends "all" on its own, so "all" follows DAV_DEFAULT_CALENDAR when one is set (issue #4);
    * without a default it means every calendar, which undefined stands for here.
    */
-  private calendarTarget(name?: string): string | undefined {
+  resolveCalendarName(name?: string): string | undefined {
     const wanted = name?.trim() || undefined;
     if (wanted && !isAllCalendars(wanted)) return wanted;
     const configured = this.config.DAV_DEFAULT_CALENDAR?.trim() || undefined;
@@ -752,7 +752,7 @@ export class CalendarService {
     const range = timeRange ?? { start: new Date().toISOString(), end: new Date(Date.now() + 30 * 86400000).toISOString() };
     await this.listCalendars();
     // "all" and no name mean the configured default calendar, when there is one
-    const wanted = this.calendarTarget(calendarName);
+    const wanted = this.resolveCalendarName(calendarName);
     const targets = this.calendarsFor(wanted);
     if (wanted && targets.length === 0) throw this.noCalendarFor(wanted);
     const icalTime = (iso: string) => `${new Date(iso).toISOString().slice(0, 19).replace(/[-:.]/g, '')}Z`;
@@ -798,7 +798,7 @@ export class CalendarService {
   async findInvitation(uid: string, calendarName?: string): Promise<InvitationDTO | null> {
     const email = this.attendeeEmail();
     // "all", a name and a group read the same way as in list_invitations, default calendar included
-    const event = await this.findEventByUid(uid, this.calendarTarget(calendarName));
+    const event = await this.findEventByUid(uid, this.resolveCalendarName(calendarName));
     if (!event?._raw || !event.url) return null;
     const invitation = transformInvitation({ href: event.url, props: { getetag: event.etag, calendarData: event._raw } }, email, this.logger);
     return invitation && invitation.isAttendee ? invitation : null;
