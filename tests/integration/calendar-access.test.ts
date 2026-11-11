@@ -210,6 +210,25 @@ describe('calendar access rights', () => {
     }
   });
 
+  it('searches the calendars of the group for a writing tool that finds an event by UID', async () => {
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_DEFAULT_CALENDAR: 'mine' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+
+    dav.requests.length = 0;
+    await service.findEventByUid('a-uid', 'mine').catch(() => null);
+    const queried = dav.requests.filter((request) => request.method === 'REPORT').map((request) => request.url);
+    expect(queried.length).toBeGreaterThan(0);
+    expect(queried.every((url) => url.includes('/Perso/'))).toBe(true);
+  });
+
+  it('does not take an odd calendar name for a group', async () => {
+    // "constructor" and "__proto__" are properties of every object: they must be read as calendar names
+    for (const name of ['constructor', '__proto__']) {
+      await expect(call('get_todays_schedule', { calendar: name })).resolves.toMatch(/not found|Calendar/);
+    }
+  });
+
   it('names the empty group and how to list the calendars', async () => {
     const lonely = await startFakeDav(['Perso']);
     try {

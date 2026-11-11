@@ -197,7 +197,7 @@ get_todays_schedule(calendar: "read-only")    # only the ones shared with you fo
 
 A group can also be the default calendar (`DAV_DEFAULT_CALENDAR=mine`): an assistant then reads the calendars you own unless you ask for another one, and `calendar: "all"` follows that default as any other name does. `DAV_DEFAULT_CALENDAR=all` means no default at all. A name still targets one calendar — a calendar that really is called `mine` keeps its own name.
 
-Groups are for reading: writing into several calendars at once has no meaning, so `create_event`, `update_event`, `delete_event`, `add_alarm` and `remove_alarm` need a calendar name, and say so when the default is a group.
+`create_event` needs a calendar name when the default is a group, since creating an event in several calendars at once has no meaning. The tools that find an event by UID — `update_event`, `delete_event`, `add_alarm`, `remove_alarm` — search the calendars of that group.
 
 The rights come from three properties:
 

@@ -15,7 +15,7 @@ import type { Config } from '../config/schema.js';
 import { CollectionCache } from './cache.js';
 import { withRetry } from './retry.js';
 import { discoverCalendars, discoverSchedulingInbox } from './discovery.js';
-import { calendarKey, discoverCalendarAccess, isCalendarGroup, type CalendarAccess, type CalendarSharing } from './access.js';
+import { CALENDAR_GROUPS, calendarKey, discoverCalendarAccess, isCalendarGroup, type CalendarAccess, type CalendarSharing } from './access.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictError, DavHttpError, isDavUnsupported } from '../errors.js';
 import { addReadWarning, hasPartialRead } from './dav-fetch.js';
@@ -322,6 +322,23 @@ export class CalendarService {
     return objects;
   }
 
+  /**
+   * The calendars a name selects: all of them for "all" or nothing, the calendars of a group for a group name,
+   * the one that carries the name otherwise
+   */
+  private calendarsFor(name: string | undefined): DAVCalendar[] {
+    const wanted = name?.trim();
+    if (!wanted || wanted.toLowerCase() === 'all') return this.calendars;
+    if (isCalendarGroup(wanted)) {
+      const groups = CALENDAR_GROUPS[wanted.toLowerCase()];
+      return this.calendars.filter((calendar) => {
+        const access = this.calendarAccess(calendar);
+        return access !== undefined && groups.includes(access);
+      });
+    }
+    return this.calendars.filter((calendar) => String(calendar.displayName || '').toLowerCase() === wanted.toLowerCase());
+  }
+
   /** DAV_DEFAULT_CALENDAR, unless it is "all" or a group of access rights, which no calendar is called */
   private configuredDefaultCalendar(): string | undefined {
     const configured = this.config.DAV_DEFAULT_CALENDAR?.trim();
@@ -595,11 +612,7 @@ export class CalendarService {
     //    can miss events that do exist.
     try {
       await this.listCalendars();
-      const targets = calendarName
-        ? this.calendars.filter(
-            (cal) => String(cal.displayName || '').toLowerCase() === calendarName.toLowerCase()
-          )
-        : this.calendars;
+      const targets = this.calendarsFor(calendarName);
       const filters = [
         {
           'comp-filter': {
@@ -721,9 +734,7 @@ export class CalendarService {
     await this.listCalendars();
     // "all", or a group of access rights, is not a calendar: invitations then come from every calendar
     const wanted = calendarName === 'all' ? undefined : calendarName ?? this.configuredDefaultCalendar();
-    const targets = wanted
-      ? this.calendars.filter((cal) => String(cal.displayName || '').toLowerCase() === wanted.trim().toLowerCase())
-      : this.calendars;
+    const targets = this.calendarsFor(wanted);
     if (wanted && targets.length === 0) {
       throw this.notFound(wanted);
     }

@@ -10,7 +10,6 @@ import type { Logger } from 'pino';
 import * as chrono from 'chrono-node';
 import type { CalendarService } from '../../caldav/calendar-service.js';
 import { ConflictError } from '../../errors.js';
-import { usableCalendarName } from './utils.js';
 import { addExdateToEvent } from '../../transformers/event-builder.js';
 import { approverFor } from '../../approval.js';
 
@@ -65,7 +64,7 @@ export function registerDeleteEventTool(
         // Resolve target calendar
         const resolvedCalendar = params.calendar === 'all'
           ? undefined
-          : usableCalendarName(params.calendar || defaultCalendar);
+          : (params.calendar || defaultCalendar || undefined);
 
         // Find event by UID
         const event = await calendarService.findEventByUid(params.uid, resolvedCalendar);

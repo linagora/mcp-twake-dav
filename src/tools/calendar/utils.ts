@@ -607,7 +607,7 @@ export async function resolveCalendarEvents(
   if (wanted) {
     // A group of access rights rather than one name: "mine", "writable", "read-only". A calendar
     // that actually carries one of those names keeps it.
-    const access = CALENDAR_GROUPS[wanted.toLowerCase()];
+    const access = isCalendarGroup(wanted) ? CALENDAR_GROUPS[wanted.toLowerCase()] : undefined;
     if (access && !(await calendarService.hasCalendarNamed(wanted))) return calendarService.fetchEventsByAccess(access, timeRange);
     return calendarService.fetchEventsByCalendarName(wanted, timeRange);
   }
@@ -615,16 +615,6 @@ export async function resolveCalendarEvents(
 }
 
 
-/**
- * A calendar name a writing tool may use: "all" and the group names are not calendars
- *
- * @param name - the calendar the user or the configuration named
- * @returns the name to look up, or undefined to search every calendar
- */
-export function usableCalendarName(name: string | undefined): string | undefined {
-  const wanted = name?.trim();
-  return !wanted || wanted.toLowerCase() === 'all' || isCalendarGroup(wanted) ? undefined : wanted;
-}
 
 /**
  * Description of the `calendar` parameter, shared by the query tools
