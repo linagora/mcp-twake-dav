@@ -308,6 +308,34 @@ export function searchEventsByAttendee(events: EventDTO[], name: string): EventD
 const MAX_OCCURRENCES_PER_SERIES = 10_000;
 
 /**
+ * Express an occurrence in the time frame of the series' own DTSTART
+ *
+ * RFC 5545 lets the RECURRENCE-ID of an exception be UTC ("…Z"), qualified with a
+ * TZID, or floating, and ical.js only matches an occurrence to an exception when
+ * both are read in the same frame. Google and Twake Calendar write TZID-qualified
+ * values; comparing occurrences converted to UTC made every one of them miss, so
+ * moved and cancelled instances were reported at their original slot.
+ *
+ * @param occurrence - instant of the occurrence, as expanded from the RRULE
+ * @param zone - ICAL zone of the series' DTSTART (undefined when the event has none)
+ * @param allDay - the series is dated (VALUE=DATE), as the RECURRENCE-ID of its exceptions is
+ * @returns the occurrence as an ICAL.Time, in the frame the RECURRENCE-ID uses
+ */
+function occurrenceInZone(occurrence: Date, zone: ICAL.Timezone | undefined, allDay: boolean): ICAL.Time {
+  let time: ICAL.Time;
+  if (!zone || zone === ICAL.Timezone.localTimezone || zone.tzid === 'floating') {
+    // floating times: ical.js reads and writes them in the timezone of the machine
+    time = ICAL.Time.fromJSDate(occurrence, false);
+  } else {
+    const utc = ICAL.Time.fromJSDate(occurrence, true);
+    time = zone === ICAL.Timezone.utcTimezone || zone.tzid === 'UTC' ? utc : utc.convertToZone(zone);
+  }
+  // an all-day occurrence is a date: ical.js only matches it with a RECURRENCE-ID;VALUE=DATE
+  if (allDay) time.isDate = true;
+  return time;
+}
+
+/**
  * Get events with recurrence expansion
  *
  * Transforms raw DAVCalendarObject array into EventDTOs, expanding recurring events
@@ -373,6 +401,11 @@ export function getEventsWithRecurrenceExpansion(
         // Create ICAL.Event with explicit exceptions
         const icalEvent = new ICAL.Event(vevent, { exceptions });
 
+        // The zone the series is written in: an occurrence must be compared with the
+        // RECURRENCE-ID values in their own time frame (see below).
+        const seriesStart = vevent.getFirstProperty('dtstart')?.getFirstValue() as ICAL.Time | null;
+        const seriesZone = seriesStart?.zone;
+
         // Calculate event duration for occurrence generation
         const duration = eventDTO.endDate.getTime() - eventDTO.startDate.getTime();
 
@@ -396,14 +429,15 @@ export function getEventsWithRecurrenceExpansion(
           return end;
         };
         const overlaps = (start: Date, end: Date) => (end > startDate || start >= startDate) && start < endDate;
+        // the exceptions this range lists through the occurrence they belong to, by RECURRENCE-ID
+        const listed = new Set<string>();
 
         // Create EventDTO for each occurrence (preserving original fields, updating dates)
         for (const occurrenceDate of occurrences) {
-          // Check if this occurrence has an exception (RECURRENCE-ID)
-          // This handles cancelled instances that use RECURRENCE-ID + STATUS=CANCELLED
-          // IMPORTANT: Use 'true' to create UTC time, matching the RECURRENCE-ID format
-          const occurrenceTime = ICAL.Time.fromJSDate(occurrenceDate, true);
-          const details = icalEvent.getOccurrenceDetails(occurrenceTime);
+          // Match this occurrence with the exception that may replace or cancel it
+          const details = icalEvent.getOccurrenceDetails(
+            occurrenceInZone(occurrenceDate, seriesZone, seriesStart?.isDate === true)
+          );
 
           // If this occurrence has an exception, check if it's cancelled
           if (details.item !== icalEvent) {
@@ -422,6 +456,9 @@ export function getEventsWithRecurrenceExpansion(
             // For non-cancelled exceptions, use the exception's dates and summary
             const exceptionEvent = details.item;
             if (!overlaps(details.startDate.toJSDate(), details.endDate.toJSDate())) continue;
+            // by RECURRENCE-ID rather than by component: malformed data may hold two exceptions for
+            // one slot, and the second pass must not add either of them again
+            listed.add((exceptionVevent.getFirstPropertyValue('recurrence-id') as ICAL.Time).toString());
             allEvents.push({
               ...eventDTO,
               summary: exceptionEvent.summary || eventDTO.summary,
@@ -443,6 +480,29 @@ export function getEventsWithRecurrenceExpansion(
               // Keep other fields (summary, location, attendees, etc.) from original
             });
           }
+        }
+
+        // An occurrence moved into this range: the series gives it another slot, often another day, so
+        // the expansion above never generated it here, and the exception holding it was never looked at.
+        // Only the exceptions the loop above did not list are added, whatever their slot.
+        for (const exception of exceptions) {
+          const recurrenceId = exception.getFirstPropertyValue('recurrence-id') as ICAL.Time | null;
+          if (!recurrenceId || listed.has(recurrenceId.toString())) continue;
+          const status = exception.getFirstPropertyValue('status');
+          if (status && String(status).toUpperCase() === 'CANCELLED') continue;
+          const moved = new ICAL.Event(exception);
+          const start = moved.startDate.toJSDate();
+          const end = moved.endDate.toJSDate();
+          if (!overlaps(start, end)) continue;
+          allEvents.push({
+            ...eventDTO,
+            summary: moved.summary || eventDTO.summary,
+            description: moved.description || eventDTO.description,
+            location: moved.location || eventDTO.location,
+            startDate: start,
+            endDate: end,
+            status: status ? String(status).toUpperCase() : eventDTO.status,
+          });
         }
       } catch (err) {
         logger.error(
