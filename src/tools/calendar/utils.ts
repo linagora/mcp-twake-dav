@@ -492,7 +492,7 @@ export function getEventsWithRecurrenceExpansion(
           if (status && String(status).toUpperCase() === 'CANCELLED') continue;
           const moved = new ICAL.Event(exception);
           const start = moved.startDate.toJSDate();
-          const end = moved.endDate?.toJSDate() ?? occurrenceEndOf(start);
+          const end = moved.endDate.toJSDate();
           if (!overlaps(start, end)) continue;
           allEvents.push({
             ...eventDTO,
