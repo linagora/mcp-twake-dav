@@ -54,7 +54,7 @@ describe('classifyAccess', () => {
     expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', WRITABLE)).toBe('mine');
     // a sharing access wins over a privilege that contradicts it
     expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', WRITABLE, 'read')).toBe('read');
-    expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', READ_ONLY, 'read-write')).toBe('read');
+    expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', READ_ONLY, 'read-write')).toBe('write');
   });
 
   it('does not mistake write-properties for write access', () => {

@@ -192,7 +192,7 @@ The query tools take the name of a group, so an assistant asked "what's on my ca
 get_todays_schedule(calendar: "mine")         # the calendars you own
 get_todays_schedule(calendar: "writable")     # every calendar you may write to, your own included
 get_todays_schedule(calendar: "shared-write") # somebody else's calendars shared with write access
-get_todays_schedule(calendar: "read-only")    # only the ones shared with you for reading
+get_todays_schedule(calendar: "read-only")    # where you may only read: shared read-only, or your own
 ```
 
 A group can also be the default calendar (`DAV_DEFAULT_CALENDAR=mine`): an assistant then reads the calendars you own unless you ask for another one, and `calendar: "all"` follows that default as any other name does. `DAV_DEFAULT_CALENDAR=all` means no default at all. A name still targets one calendar — a calendar that really is called `mine` keeps its own name.

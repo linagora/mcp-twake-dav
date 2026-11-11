@@ -13,6 +13,7 @@ import { ConflictError } from '../../errors.js';
 import { removeAlarmFromEvent, removeAllAlarmsFromEvent } from '../../transformers/event-builder.js';
 import ICAL from 'ical.js';
 import { approverFor } from '../../approval.js';
+import { defaultCalendarText } from './utils.js';
 
 /**
  * Register the remove_alarm tool
@@ -36,7 +37,7 @@ export function registerRemoveAlarmTool(
       alarmIndex: z.union([z.number(), z.literal('all')]).describe('The 0-based index of the reminder to remove, or "all" to remove all reminders. Index 0 is the first reminder.'),
       calendar: z.string().optional().describe(
         'Calendar name to search in. Use "all" to search all calendars. ' +
-        (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to all calendars.')
+        defaultCalendarText(defaultCalendar)
       ),
     },
     {

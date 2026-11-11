@@ -627,7 +627,21 @@ export function calendarParamDescription(defaultCalendar?: string): string {
     'Also "mine" (the calendars you own), "writable" (every calendar you may write to, your own included), ' +
     '"shared-write" (somebody else\'s calendars shared with write access) or "read-only" (where you may only read), ' +
     'or "all" for every calendar. A server that does not publish access rights answers a name or "all" only. ';
-  return 'Calendar name to search in. ' + groups + (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to all calendars.');
+  return 'Calendar name to search in. ' + groups + defaultCalendarText(defaultCalendar);
+}
+
+/**
+ * How a tool describes the calendar its configuration gives by default
+ *
+ * @param defaultCalendar - DAV_DEFAULT_CALENDAR, when the user configured one
+ * @returns the sentence shown to the model
+ */
+export function defaultCalendarText(defaultCalendar?: string): string {
+  if (!defaultCalendar) return 'Defaults to all calendars.';
+  // a group names several calendars: say so, rather than "Defaults to \"mine\""
+  return isCalendarGroup(defaultCalendar)
+    ? `Defaults to the calendars of the group "${defaultCalendar.trim()}".`
+    : `Defaults to "${defaultCalendar}".`;
 }
 
 /**

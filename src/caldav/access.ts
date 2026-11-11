@@ -107,12 +107,11 @@ export function classifyAccess(
   privileges: string[],
   shared: 'read' | 'read-write' | undefined = undefined
 ): CalendarAccess {
-  // what the server says about the sharing wins: a calendar shared read-only stays read-only,
-  // even if it also carries a write privilege
+  // what the server says about the sharing wins, in both directions: a calendar shared with write
+  // access is writable, one shared read-only is not, whatever the privileges add
   if (shared === 'read') return 'read';
-  if (!privileges.some((name) => WRITE_PRIVILEGES.has(name))) return 'read';
-  // a calendar the server describes as shared was not owned by the account, whoever DAV:owner names
   if (shared === 'read-write') return 'write';
+  if (!privileges.some((name) => WRITE_PRIVILEGES.has(name))) return 'read';
   return !owner || !principal || samePrincipal(owner, principal) ? 'mine' : 'write';
 }
 

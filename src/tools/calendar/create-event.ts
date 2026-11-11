@@ -12,6 +12,7 @@ import { ConflictError } from '../../errors.js';
 import { buildICalString } from '../../transformers/event-builder.js';
 import * as chrono from 'chrono-node';
 import { approverFor } from '../../approval.js';
+import { defaultCalendarText } from './utils.js';
 
 /**
  * Register the create_event tool
@@ -43,7 +44,7 @@ export function registerCreateEventTool(
       location: z.string().optional().describe('Event location'),
       calendar: z.string().optional().describe(
         'Calendar name to create the event in. ' +
-        (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to first calendar.')
+        (defaultCalendar ? defaultCalendarText(defaultCalendar) : 'Defaults to first calendar.')
       ),
       allDay: z.boolean().optional().describe('If true, creates an all-day event (DATE format instead of DATE-TIME)'),
       recurrence: z.string().optional().describe('RRULE recurrence string (e.g., "FREQ=WEEKLY;BYDAY=MO", "FREQ=DAILY;COUNT=5")'),

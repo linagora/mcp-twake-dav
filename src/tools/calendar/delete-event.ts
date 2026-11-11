@@ -12,6 +12,7 @@ import type { CalendarService } from '../../caldav/calendar-service.js';
 import { ConflictError } from '../../errors.js';
 import { addExdateToEvent } from '../../transformers/event-builder.js';
 import { approverFor } from '../../approval.js';
+import { defaultCalendarText } from './utils.js';
 
 
 /** True when the event is a recurring series or an occurrence of one. */
@@ -49,7 +50,7 @@ export function registerDeleteEventTool(
       ),
       calendar: z.string().optional().describe(
         'Calendar name to search in. Use "all" to search all calendars. ' +
-        (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to all calendars.')
+        defaultCalendarText(defaultCalendar)
       ),
     },
     {
