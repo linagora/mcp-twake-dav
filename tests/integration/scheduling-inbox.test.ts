@@ -59,7 +59,6 @@ describe('discoverSchedulingInbox', () => {
 
   it('returns null when the server does not publish it', async () => {
     const { fake, client } = await connect();
-    answer(fake);
     fake.handler = (req) => (req.method === 'PROPFIND' ? { status: 207, headers: { 'content-type': 'application/xml' }, body: '<d:multistatus xmlns:d="DAV:"/>' } : null);
 
     await expect(discoverSchedulingInbox(client, `${fake.url}principals/u1/`, logger)).resolves.toBeNull();
