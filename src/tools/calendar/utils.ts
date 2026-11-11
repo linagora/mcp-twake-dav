@@ -429,6 +429,8 @@ export function getEventsWithRecurrenceExpansion(
           return end;
         };
         const overlaps = (start: Date, end: Date) => (end > startDate || start >= startDate) && start < endDate;
+        // the exceptions this range lists through the occurrence they belong to
+        const listed = new Set<ICAL.Component>();
 
         // Create EventDTO for each occurrence (preserving original fields, updating dates)
         for (const occurrenceDate of occurrences) {
@@ -454,6 +456,7 @@ export function getEventsWithRecurrenceExpansion(
             // For non-cancelled exceptions, use the exception's dates and summary
             const exceptionEvent = details.item;
             if (!overlaps(details.startDate.toJSDate(), details.endDate.toJSDate())) continue;
+            listed.add(exceptionVevent);
             allEvents.push({
               ...eventDTO,
               summary: exceptionEvent.summary || eventDTO.summary,
@@ -475,6 +478,28 @@ export function getEventsWithRecurrenceExpansion(
               // Keep other fields (summary, location, attendees, etc.) from original
             });
           }
+        }
+
+        // An occurrence moved into this range: the series gives it another slot, often another day, so
+        // the expansion above never generated it here, and the exception holding it was never looked at.
+        // Only the exceptions the loop above did not list are added, whatever their slot.
+        for (const exception of exceptions) {
+          if (listed.has(exception)) continue;
+          const status = exception.getFirstPropertyValue('status');
+          if (status && String(status).toUpperCase() === 'CANCELLED') continue;
+          const moved = new ICAL.Event(exception);
+          const start = moved.startDate.toJSDate();
+          const end = moved.endDate?.toJSDate() ?? occurrenceEndOf(start);
+          if (!overlaps(start, end)) continue;
+          allEvents.push({
+            ...eventDTO,
+            summary: moved.summary || eventDTO.summary,
+            description: moved.description || eventDTO.description,
+            location: moved.location || eventDTO.location,
+            startDate: start,
+            endDate: end,
+            status: status ? String(status).toUpperCase() : eventDTO.status,
+          });
         }
       } catch (err) {
         logger.error(
