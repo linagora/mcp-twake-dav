@@ -45,7 +45,11 @@ export function registerCreateEventTool(
       location: z.string().optional().describe('Event location'),
       calendar: z.string().optional().describe(
         'Calendar name to create the event in. ' +
-        (defaultCalendar ? defaultCalendarText(defaultCalendar) : 'Defaults to first calendar.')
+        (defaultCalendar
+          ? isCalendarGroup(defaultCalendar)
+            ? 'A group of calendars cannot hold a new event: name the calendar.'
+            : defaultCalendarText(defaultCalendar)
+          : 'Defaults to first calendar.')
       ),
       allDay: z.boolean().optional().describe('If true, creates an all-day event (DATE format instead of DATE-TIME)'),
       recurrence: z.string().optional().describe('RRULE recurrence string (e.g., "FREQ=WEEKLY;BYDAY=MO", "FREQ=DAILY;COUNT=5")'),
@@ -124,11 +128,23 @@ export function registerCreateEventTool(
           };
         }
 
-        // Resolve target calendar. A group, or "all", names no calendar: say so before asking for
-        // approval, rather than failing once the user has accepted the write.
+        // Resolve target calendar. "all" and a group name calendars, not one calendar: say so before
+        // asking for approval, rather than failing once the user has accepted the write. A calendar
+        // that really carries one of those names keeps it.
         const resolvedCalendar = params.calendar || defaultCalendar;
         const target = resolvedCalendar?.trim();
-        if (target && (target.toLowerCase() === 'all' || isCalendarGroup(target))) {
+        if (target?.toLowerCase() === 'all') {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: '"all" means every calendar, not one: name the calendar to create the event in.\n\nFix: Use list_calendars to see the calendars.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        if (target && isCalendarGroup(target) && !(await calendarService.hasCalendarNamed(target))) {
           return {
             content: [
               {
