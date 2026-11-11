@@ -114,7 +114,7 @@ END:VCALENDAR`;
     ]);
   });
 
-  it('keeps one entry when only one of the copies carries the exception', () => {
+  it('keeps one entry when the two copies differ only by content', () => {
     const plain = `BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT

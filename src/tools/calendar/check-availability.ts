@@ -55,7 +55,16 @@ export function buildAvailabilityText(
     lines.push('', `${periods.length} busy period(s) found.`);
   }
 
-  const allDay = events.filter((e) => e.allDay && e.status !== 'CANCELLED');
+  // one entry per all-day event, even when several calendars hold it: the busy periods above merge
+  // by themselves, but this list would repeat the same holiday once per calendar
+  const seen = new Set<string>();
+  const allDay = events.filter((e) => {
+    if (!e.allDay || e.status === 'CANCELLED') return false;
+    const key = `${e.uid}|${e.startDate.toISOString()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   if (allDay.length) {
     lines.push(
       '',

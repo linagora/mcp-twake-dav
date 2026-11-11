@@ -317,8 +317,8 @@ const MAX_OCCURRENCES_PER_SERIES = 10_000;
  * 1. Transform each DAVCalendarObject to EventDTO using Phase 2 transformer
  * 2. For recurring events: parse _raw iCalendar and expand with Phase 2 recurrence expander
  * 3. For non-recurring events: filter by time range
- * 4. Sort by startDate, then UID and URL so that pages stay stable
- * 5. Keep one entry per event, when several calendars hold the same one
+ * 4. Keep one entry per event, when several calendars hold the same one
+ * 5. Sort by startDate, then UID and URL so that pages stay stable
  *
  * @param rawEvents - Array of DAVCalendarObject from CalendarService
  * @param timeRange - ISO 8601 time range for filtering/expansion
@@ -341,7 +341,8 @@ export function getEventsWithRecurrenceExpansion(
  * Expand the series and sort, keeping each event with the identity the deduplication uses
  *
  * For the tools that filter before showing anything (a search, a busy period): keeping one copy
- * before the filter would drop an event whose other copy is the one that matches.
+ * before the filter would drop an event whose other copy is the one that matches. The caller sorts
+ * the result, after deduplicating, so that the copy kept is the first calendar of the server.
  */
 export function expandEvents(
   rawEvents: DAVCalendarObject[],
@@ -510,7 +511,8 @@ export function sortEvents(events: EventDTO[]): EventDTO[] {
  * gives `2026-11-11T10:00:00.000Z`, and the two must meet.
  */
 function recurrenceIdOf(ics: string | undefined): string | undefined {
-  if (ics === undefined) return undefined;
+  // the property is rare: a substring test keeps most events out of a second parse
+  if (ics === undefined || !ics.includes('RECURRENCE-ID')) return undefined;
   try {
     const component = ICAL.parse(ics);
     const vevent = new ICAL.Component(component).getFirstSubcomponent('vevent');
