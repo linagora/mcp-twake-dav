@@ -46,20 +46,21 @@ describe('the same event on several calendars', () => {
     expect(events[0].summary).toBe('Weekly meeting');
   });
 
-  it('keeps the attendees of every copy', () => {
+  it('keeps the first copy of the server order', () => {
     const events = getEventsWithRecurrenceExpansion(
       [
-        event('https://dav.example.com/calendars/u1/mine/e1.ics', 'shared@example.com', ['alice@example.com', 'bob@example.com']),
-        event('https://dav.example.com/calendars/u1/team/e1.ics', 'shared@example.com', ['alice@example.com', 'carol@example.com']),
+        event('https://dav.example.com/calendars/u1/mine/e1.ics', 'shared@example.com', ['alice@example.com', 'bob@example.com'], 'Mine'),
+        event('https://dav.example.com/calendars/u1/team/e1.ics', 'shared@example.com', ['alice@example.com', 'carol@example.com'], 'Team'),
       ],
       range,
       logger
     );
 
     expect(events).toHaveLength(1);
-    expect(events[0].attendees).toHaveLength(3);
-    expect(events[0].attendees.join(' ')).toContain('carol@example.com');
+    expect(events[0].summary).toBe('Mine');
+    expect(events[0].url).toContain('/mine/');
   });
+;
 
   it('does not merge two different events at the same time', () => {
     const events = getEventsWithRecurrenceExpansion(

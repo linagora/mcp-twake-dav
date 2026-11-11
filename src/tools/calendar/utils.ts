@@ -480,24 +480,24 @@ export function getEventsWithRecurrenceExpansion(
  *
  * An account often sees the same event more than once: an invitation accepted and copied into the
  * user's own calendar, a team meeting shown on every member's calendar, the same event shared twice.
- * They carry the same UID (RFC 5545: unique per event), so they are one event with one attendee list.
+ * They carry the same UID (RFC 5545: unique per event), so they are one event. The first copy in the
+ * server's calendar order is the one kept: the copies may disagree on the attendees, and none of them
+ * is more right than another without a rule the user chose.
  *
- * @param events - the events of every calendar, sorted by start, UID and URL
+ * @param events - the events of every calendar, in the order the expansion pushed them
+ * @param keys - their deduplication keys, in the same order: the UID and the slot the series gives
+ *   the occurrence, which two copies agree on and which tells two occurrences of a series apart
  * @param logger - Pino logger
- * @returns every event once, an occurrence at a time, with the attendees of all its copies
+ * @returns every event once, an occurrence at a time
  */
 function withoutDuplicates(events: EventDTO[], keys: string[], logger: Logger): EventDTO[] {
   const unique = new Map<string, EventDTO>();
   events.forEach((event, index) => {
-    const key = keys[index] ?? `${event.uid}|${event.startDate.toISOString()}`;
-    const seen = unique.get(key);
-    if (!seen) {
+    const key = keys[index];
+    if (!unique.has(key)) {
       unique.set(key, event);
       return;
     }
-    // the copies may disagree on the attendees (each calendar carries its own PARTSTAT lines)
-    const attendees = [...new Set([...seen.attendees, ...event.attendees])];
-    unique.set(key, attendees.length === seen.attendees.length ? seen : { ...seen, attendees });
     logger.debug({ uid: event.uid, date: event.startDate.toISOString(), url: event.url }, 'Skipping an event another calendar already lists');
   });
   return [...unique.values()];
