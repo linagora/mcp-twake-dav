@@ -35,7 +35,7 @@ export function registerRespondInvitationTool(
     '"Do you want to accept/decline/mark tentative for this invitation?"',
     {
       uid: z.string().describe('The UID of the invitation to respond to. Use list_invitations to find UIDs.'),
-      calendar: z.string().optional().describe('Calendar holding the invitation (default: the default calendar, then all calendars).'),
+      calendar: z.string().optional().describe('Calendar holding the invitation, or "all" for every calendar (default: the default calendar when one is set, then every calendar).'),
       response: z.enum(['accept', 'decline', 'tentative']).describe(
         'Your response: "accept" confirms attendance, "decline" refuses, "tentative" indicates uncertainty'
       ),

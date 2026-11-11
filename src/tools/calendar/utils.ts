@@ -594,24 +594,15 @@ export async function resolveCalendarEvents(
   defaultCalendar: string | undefined,
   timeRange: TimeRange,
 ): Promise<DAVCalendarObject[]> {
-  // When a default calendar is configured, use it unless the user explicitly
-  // provides a different calendar name.  The LLM often sends "all" by default
-  // which would bypass the user's configured filter — ignore "all" when a
-  // default is set so only the user's own calendar is queried.
-  // a default calendar of "all" means no default at all
-  const configured = isAllCalendars(defaultCalendar) ? undefined : defaultCalendar;
-  const target = isAllCalendars(calendarParam)
-    ? configured
-    : (calendarParam || configured);
-  const wanted = target?.trim();
-  if (wanted) {
-    // A group of access rights rather than one name: "mine", "writable", "read-only". A calendar
-    // that actually carries one of those names keeps it.
-    const access = isCalendarGroup(wanted) ? CALENDAR_GROUPS[wanted.toLowerCase()] : undefined;
-    if (access && !(await calendarService.hasCalendarNamed(wanted))) return calendarService.fetchEventsByAccess(access, timeRange);
-    return calendarService.fetchEventsByCalendarName(wanted, timeRange);
-  }
-  return calendarService.fetchAllEvents(timeRange);
+  // The calendar the call names comes first; the configured default fills in when it names none. "all"
+  // means every calendar, here as in every other tool: an explicit request wins over the default.
+  const target = calendarParam?.trim() || defaultCalendar?.trim() || undefined;
+  if (!target || isAllCalendars(target)) return calendarService.fetchAllEvents(timeRange);
+  // A group of access rights rather than one name: "mine", "writable", "read-only". A calendar that
+  // actually carries one of those names keeps it.
+  const access = isCalendarGroup(target) ? CALENDAR_GROUPS[target.toLowerCase()] : undefined;
+  if (access && !(await calendarService.hasCalendarNamed(target))) return calendarService.fetchEventsByAccess(access, timeRange);
+  return calendarService.fetchEventsByCalendarName(target, timeRange);
 }
 
 /**
@@ -624,7 +615,7 @@ export function calendarParamDescription(defaultCalendar?: string): string {
   const groups =
     'Also "mine" (the calendars you own), "writable" (every calendar you may write to, your own included), ' +
     '"shared-write" (somebody else\'s calendars shared with write access) or "read-only" (where you may only read), ' +
-    (defaultCalendar ? 'or "all" for every calendar, unless a default calendar is set, which "all" then follows. ' : 'or "all" for every calendar. ') +
+    'or "all" for every calendar. ' +
     'A server that does not publish access rights answers a name or "all" only. ';
   return 'Calendar name to search in. ' + groups + defaultCalendarText(defaultCalendar);
 }

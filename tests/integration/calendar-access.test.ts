@@ -348,6 +348,15 @@ describe('calendar access rights', () => {
       expect(text, name).toContain('Event of Perso');
       expect(text, name).toContain('Event of Team');
       expect(text, name).not.toContain('not found');
+
+      // and the tools that find an event by UID search every calendar too
+      const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_DEFAULT_CALENDAR: 'mine', DAV_ORGANIZER_EMAIL: 'u@example.com' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+      dav.requests.length = 0;
+      await service.findInvitation('a', name).catch(() => null);
+      const queried = dav.requests.filter((request) => request.method === 'REPORT').map((request) => request.url);
+      expect(queried.some((url) => url.includes('/Shared/')), name).toBe(true);
     }
   });
 
