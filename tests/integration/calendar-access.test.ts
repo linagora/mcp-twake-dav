@@ -317,29 +317,30 @@ describe('calendar access rights', () => {
     }
   });
 
-  it('writes into the calendar it approved when two share its name', async () => {
-    // a colleague's "Agenda" shared with write access comes first, the user's own "Agenda" second
-    const same = await startFakeDav(['Agenda', 'Other'], { sharedWithWrite: ['Agenda'], readOnly: ['Other'] });
+  it('creates the event in the calendar the approval named when two share its name', async () => {
+    // a colleague's "Agenda" shared with write access comes first; the user's own calendar is renamed
+    // to "Agenda" as well after the discovery, so a lookup by name would find the colleague's one
+    const same = await startFakeDav(['Agenda', 'Own'], { sharedWithWrite: ['Agenda'] });
     same.handler = (req) => (req.method === 'PUT' ? { status: 201, headers: { etag: '"1"' } } : null);
-    // the second "Agenda" is the user's own: same display name, another URL
-    const original = same.handler;
-    same.handler = (req) => {
-      const reply = original(req, undefined as never);
-      return reply;
-    };
     try {
       const config = { DAV_URL: same.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_APPROVAL: 'client' } as Config;
       const clients = await createDualClients(config, logger);
       const service = new CalendarService(clients.caldav, logger, config);
-      // give the second calendar the same name as the first, after discovery
       const calendars = await service.listCalendars();
       calendars[1] = { ...calendars[1], displayName: 'Agenda' };
       const own = calendars[1];
 
-      await service.createEvent('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n', undefined, own);
+      const server = createServer(service, new AddressBookService(clients.carddav, logger), logger, undefined, undefined, undefined, { DAV_APPROVAL: 'client' });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await server.connect(serverTransport);
+      const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+      await scoped.connect(clientTransport);
+
+      await scoped.callTool({ name: 'create_event', arguments: { title: 'Point', start: '2026-11-12T10:00:00', end: '2026-11-12T11:00:00' } });
       const put = same.requests.filter((request) => request.method === 'PUT');
       expect(put).toHaveLength(1);
       expect(put[0].url).toContain(own.url.replace(same.url, '/'));
+      await scoped.close();
     } finally {
       await same.close();
     }
