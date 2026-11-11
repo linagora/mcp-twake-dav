@@ -329,14 +329,14 @@ export class CalendarService {
   private calendarsFor(name: string | undefined): DAVCalendar[] {
     const wanted = name?.trim();
     if (!wanted || wanted.toLowerCase() === 'all') return this.calendars;
-    if (isCalendarGroup(wanted)) {
-      const groups = CALENDAR_GROUPS[wanted.toLowerCase()];
-      return this.calendars.filter((calendar) => {
-        const access = this.calendarAccess(calendar);
-        return access !== undefined && groups.includes(access);
-      });
-    }
-    return this.calendars.filter((calendar) => String(calendar.displayName || '').toLowerCase() === wanted.toLowerCase());
+    // a calendar that really carries the name keeps it, as in the query tools
+    const named = this.calendars.filter((calendar) => String(calendar.displayName || '').toLowerCase() === wanted.toLowerCase());
+    if (named.length > 0 || !isCalendarGroup(wanted)) return named;
+    const groups = CALENDAR_GROUPS[wanted.toLowerCase()];
+    return this.calendars.filter((calendar) => {
+      const access = this.calendarAccess(calendar);
+      return access !== undefined && groups.includes(access);
+    });
   }
 
   /** DAV_DEFAULT_CALENDAR, unless it is "all" or a group of access rights, which no calendar is called */
@@ -355,7 +355,7 @@ export class CalendarService {
   private notFound(name: string): Error {
     if (isCalendarGroup(name)) {
       return new Error(
-        `"${name}" is a group of calendars, not a calendar: name the calendar to use.\n\nFix: Use list_calendars to see the names; the groups work for reading only.`
+        `"${name}" is a group of calendars, not a calendar: name the calendar to use.\n\nFix: Use list_calendars to see the calendars and their access.`
       );
     }
     return new Error(`Calendar "${name}" not found.\n\nFix: Use list_calendars to see the available names.`);
@@ -652,10 +652,8 @@ export class CalendarService {
       }
     }
 
-    // 2. Fallback: fetch raw calendar objects
-    const rawObjects = calendarName
-      ? await this.fetchEventsByCalendarName(calendarName)
-      : await this.fetchAllEvents();
+    // 2. Fallback: fetch raw calendar objects, from the same calendars as above (a group is not a calendar name)
+    const rawObjects = await this.fetchEventsFrom(this.calendarsFor(calendarName));
 
     // Transform and search for matching UID
     for (const obj of rawObjects) {
@@ -732,7 +730,7 @@ export class CalendarService {
     const email = this.attendeeEmail();
     const range = timeRange ?? { start: new Date().toISOString(), end: new Date(Date.now() + 30 * 86400000).toISOString() };
     await this.listCalendars();
-    // "all", or a group of access rights, is not a calendar: invitations then come from every calendar
+    // "all" means every calendar; a group is resolved to its calendars by calendarsFor()
     const wanted = calendarName === 'all' ? undefined : calendarName ?? this.configuredDefaultCalendar();
     const targets = this.calendarsFor(wanted);
     if (wanted && targets.length === 0) {

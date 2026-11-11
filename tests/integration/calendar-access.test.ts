@@ -177,7 +177,7 @@ describe('calendar access rights', () => {
     const clients = await createDualClients(config, logger);
     const service = new CalendarService(clients.caldav, logger, config);
 
-    await expect(service.createEvent('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n', 'mine')).rejects.toThrow(/is a group of calendars[\s\S]*reading only/);
+    await expect(service.createEvent('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n', 'mine')).rejects.toThrow(/is a group of calendars[\s\S]*list_calendars/);
   });
 
   it('takes a default calendar of "all" as no default at all', async () => {
@@ -220,6 +220,48 @@ describe('calendar access rights', () => {
     const queried = dav.requests.filter((request) => request.method === 'REPORT').map((request) => request.url);
     expect(queried.length).toBeGreaterThan(0);
     expect(queried.every((url) => url.includes('/Perso/'))).toBe(true);
+  });
+
+  it('still finds an event by UID when the server refuses the UID filter and the default is a group', async () => {
+    const refusing = await startFakeDav(['Perso', 'Shared'], { readOnly: ['Shared'] });
+    refusing.handler = (req) => {
+      if (req.method !== 'REPORT') return null;
+      // the server does not support the UID property filter: a 501 makes the code scan the calendars
+      if (req.body.includes('UID')) return { status: 501 };
+      return calendarObjects([{ href: '/calendars/u1/Perso/a.ics', ical: event('a', 'Event of Perso') }]);
+    };
+    try {
+      const config = { DAV_URL: refusing.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_DEFAULT_CALENDAR: 'mine' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      await expect(service.findEventByUid('a', 'mine')).resolves.toMatchObject({ uid: 'a' });
+    } finally {
+      await refusing.close();
+    }
+  });
+
+  it('lets a calendar really named "mine" keep it for the tools that find an event by UID', async () => {
+    const named = await startFakeDav(['Perso', 'mine'], { readOnly: ['mine'] });
+    named.handler = (req) => {
+      if (req.method !== 'REPORT') return null;
+      const calendar = ['Perso', 'mine'].find((c) => req.url.includes(`/${c}/`));
+      if (!calendar) return { status: 404 };
+      return calendarObjects([{ href: `/calendars/u1/${calendar}/${calendar}.ics`, ical: event(calendar, `Event of ${calendar}`) }]);
+    };
+    try {
+      const config = { DAV_URL: named.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      named.requests.length = 0;
+      await service.findEventByUid('mine', 'mine').catch(() => null);
+      const queried = named.requests.filter((request) => request.method === 'REPORT').map((request) => request.url);
+      expect(queried.length).toBeGreaterThan(0);
+      expect(queried.every((url) => url.includes('/mine/'))).toBe(true);
+    } finally {
+      await named.close();
+    }
   });
 
   it('does not take an odd calendar name for a group', async () => {
