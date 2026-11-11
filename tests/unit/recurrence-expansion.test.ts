@@ -322,6 +322,59 @@ END:VEVENT`);
       expect(events[0].startDate.toISOString()).toBe('2026-11-18T10:00:00.000Z');
     });
 
+    it('should not report an all-day instance moved to another day', () => {
+      const ics = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:test-allday@example.com
+DTSTART;VALUE=DATE:20230308
+DTEND;VALUE=DATE:20230309
+RRULE:FREQ=WEEKLY
+SUMMARY:Kiné
+END:VEVENT
+BEGIN:VEVENT
+UID:test-allday@example.com
+RECURRENCE-ID;VALUE=DATE:20261111
+DTSTART;VALUE=DATE:20261110
+DTEND;VALUE=DATE:20261111
+SUMMARY:Kiné
+END:VEVENT
+END:VCALENDAR`;
+
+      // noon to noon, so that an all-day event of the day before never overlaps the range
+      // whatever the timezone of the machine running the tests
+      const events = expand(ics, '2026-11-11T12:00:00Z', '2026-11-12T12:00:00Z');
+
+      expect(events).toHaveLength(0);
+    });
+
+    it('should drop an all-day instance cancelled with a dated RECURRENCE-ID', () => {
+      const ics = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:test-allday-cancelled@example.com
+DTSTART;VALUE=DATE:20230308
+DTEND;VALUE=DATE:20230309
+RRULE:FREQ=WEEKLY
+SUMMARY:Kiné
+END:VEVENT
+BEGIN:VEVENT
+UID:test-allday-cancelled@example.com
+RECURRENCE-ID;VALUE=DATE:20261111
+DTSTART;VALUE=DATE:20261111
+DTEND;VALUE=DATE:20261112
+STATUS:CANCELLED
+SUMMARY:Kiné
+END:VEVENT
+END:VCALENDAR`;
+
+      const events = expand(ics, '2026-11-11T12:00:00Z', '2026-11-12T12:00:00Z');
+
+      expect(events).toHaveLength(0);
+    });
+
     it('should drop a cancelled floating instance', () => {
       const ics = `BEGIN:VCALENDAR
 VERSION:2.0

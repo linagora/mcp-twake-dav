@@ -5,7 +5,7 @@ All notable changes to mcp-twake-dav are documented here. The format follows [Ke
 ## [Unreleased]
 
 ### Fixed
-- An occurrence moved or cancelled through a `RECURRENCE-ID` that carries a `TZID`, the way Twake Calendar and most clients write them, was reported at its original slot: `get_todays_schedule`, `get_events_in_range` and `search_events` listed appointments that had been moved or deleted, and `check_availability` counted them as busy. Exceptions are now matched in the series' own time frame, whatever the timezone of the machine running the server.
+- An occurrence moved or cancelled through a `RECURRENCE-ID` that carries a `TZID`, the way Twake Calendar and most clients write them, was reported at its original slot: `get_todays_schedule`, `get_events_in_range`, `get_next_event` and `search_events` listed appointments that had been moved or deleted, and `check_availability` counted them as busy. The same held for an all-day series, whose `RECURRENCE-ID` is a date. Exceptions are now matched in the series' own time frame, whatever the timezone of the machine running the server.
 
 ## [4.2.1] - 2026-11-11
 

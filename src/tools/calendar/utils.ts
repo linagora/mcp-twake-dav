@@ -318,16 +318,21 @@ const MAX_OCCURRENCES_PER_SERIES = 10_000;
  *
  * @param occurrence - instant of the occurrence, as expanded from the RRULE
  * @param zone - ICAL zone of the series' DTSTART (undefined when the event has none)
+ * @param allDay - the series is dated (VALUE=DATE), as the RECURRENCE-ID of its exceptions is
  * @returns the occurrence as an ICAL.Time, in the frame the RECURRENCE-ID uses
  */
-function occurrenceInZone(occurrence: Date, zone: ICAL.Timezone | undefined): ICAL.Time {
+function occurrenceInZone(occurrence: Date, zone: ICAL.Timezone | undefined, allDay: boolean): ICAL.Time {
+  let time: ICAL.Time;
   if (!zone || zone === ICAL.Timezone.localTimezone || zone.tzid === 'floating') {
     // floating times: ical.js reads and writes them in the timezone of the machine
-    return ICAL.Time.fromJSDate(occurrence, false);
+    time = ICAL.Time.fromJSDate(occurrence, false);
+  } else {
+    const utc = ICAL.Time.fromJSDate(occurrence, true);
+    time = zone === ICAL.Timezone.utcTimezone || zone.tzid === 'UTC' ? utc : utc.convertToZone(zone);
   }
-
-  const utc = ICAL.Time.fromJSDate(occurrence, true);
-  return zone === ICAL.Timezone.utcTimezone || zone.tzid === 'UTC' ? utc : utc.convertToZone(zone);
+  // an all-day occurrence is a date: ical.js only matches it with a RECURRENCE-ID;VALUE=DATE
+  if (allDay) time.isDate = true;
+  return time;
 }
 
 /**
@@ -427,14 +432,9 @@ export function getEventsWithRecurrenceExpansion(
 
         // Create EventDTO for each occurrence (preserving original fields, updating dates)
         for (const occurrenceDate of occurrences) {
-          // Check if this occurrence has an exception (RECURRENCE-ID)
-          // This handles cancelled instances that use RECURRENCE-ID + STATUS=CANCELLED
-          // The occurrence is compared in the series' own time frame: RECURRENCE-ID
-          // values are UTC ("Z"), carry a TZID, or float. Comparing an occurrence
-          // converted to UTC only ever matched the first kind, which left moved and
-          // cancelled instances of the other two reported at their original slot.
+          // Match this occurrence with the exception that may replace or cancel it
           const details = icalEvent.getOccurrenceDetails(
-            occurrenceInZone(occurrenceDate, seriesZone)
+            occurrenceInZone(occurrenceDate, seriesZone, seriesStart?.isDate === true)
           );
 
           // If this occurrence has an exception, check if it's cancelled
