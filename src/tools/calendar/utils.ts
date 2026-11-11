@@ -277,10 +277,10 @@ export function formatEvent(event: EventDTO, userTimezone?: string, allAttendees
  * @param keyword - Search keyword
  * @returns Filtered array of matching events
  */
-export function searchEventsByKeyword(events: EventDTO[], keyword: string): EventDTO[] {
+export function searchEventsByKeyword(found: FoundEvent[], keyword: string): FoundEvent[] {
   const lowerKeyword = keyword.toLowerCase();
 
-  return events.filter((event) => {
+  return found.filter(({ event }) => {
     const summaryMatch = event.summary.toLowerCase().includes(lowerKeyword);
     const descriptionMatch = event.description?.toLowerCase().includes(lowerKeyword) ?? false;
     return summaryMatch || descriptionMatch;
@@ -294,10 +294,10 @@ export function searchEventsByKeyword(events: EventDTO[], keyword: string): Even
  * @param name - Attendee name to search for
  * @returns Filtered array of events with matching attendee
  */
-export function searchEventsByAttendee(events: EventDTO[], name: string): EventDTO[] {
+export function searchEventsByAttendee(found: FoundEvent[], name: string): FoundEvent[] {
   const lowerName = name.toLowerCase();
 
-  return events.filter((event) => {
+  return found.filter(({ event }) => {
     return event.attendees.some((attendee) =>
       attendee.toLowerCase().includes(lowerName)
     );
@@ -317,7 +317,8 @@ const MAX_OCCURRENCES_PER_SERIES = 10_000;
  * 1. Transform each DAVCalendarObject to EventDTO using Phase 2 transformer
  * 2. For recurring events: parse _raw iCalendar and expand with Phase 2 recurrence expander
  * 3. For non-recurring events: filter by time range
- * 4. Sort by startDate, then UID and URL so that pages stay stable
+ * 4. Keep one entry per event, when several calendars hold the same one
+ * 5. Sort by startDate, then UID and URL so that pages stay stable
  *
  * @param rawEvents - Array of DAVCalendarObject from CalendarService
  * @param timeRange - ISO 8601 time range for filtering/expansion
@@ -331,9 +332,30 @@ export function getEventsWithRecurrenceExpansion(
   logger: Logger,
   options: { earliestOnly?: boolean } = {},
 ): EventDTO[] {
+  // deduplicate before sorting: the first copy must be the first calendar of the server's list, not
+  // the one whose URL sorts first
+  return sortEvents(deduplicateEvents(expandEvents(rawEvents, timeRange, logger, options), logger));
+}
+
+/**
+ * Expand the series, keeping each event with the identity the deduplication uses (the caller sorts)
+ *
+ * For the tools that filter before showing anything (a search, a busy period): keeping one copy
+ * before the filter would drop an event whose other copy is the one that matches. The caller sorts
+ * the result, after deduplicating, so that the copy kept is the first calendar of the server.
+ */
+export function expandEvents(
+  rawEvents: DAVCalendarObject[],
+  timeRange: TimeRange,
+  logger: Logger,
+  options: { earliestOnly?: boolean } = {},
+): FoundEvent[] {
   const startDate = new Date(timeRange.start);
   const endDate = new Date(timeRange.end);
-  const allEvents: EventDTO[] = [];
+  // each event with the identity the deduplication uses: the UID and the slot the series gives it,
+  // which two calendars sharing the event agree on, and which tells two occurrences of a series apart
+  // even when one was moved onto the other's time. Kept together so that a new push cannot break them.
+  const found: FoundEvent[] = [];
 
   for (const rawEvent of rawEvents) {
     // Transform to EventDTO
@@ -422,25 +444,32 @@ export function getEventsWithRecurrenceExpansion(
             // For non-cancelled exceptions, use the exception's dates and summary
             const exceptionEvent = details.item;
             if (!overlaps(details.startDate.toJSDate(), details.endDate.toJSDate())) continue;
-            allEvents.push({
-              ...eventDTO,
-              summary: exceptionEvent.summary || eventDTO.summary,
-              description: exceptionEvent.description || eventDTO.description,
-              location: exceptionEvent.location || eventDTO.location,
-              startDate: details.startDate.toJSDate(),
-              endDate: details.endDate.toJSDate(),
-              status: exceptionStatus ? String(exceptionStatus).toUpperCase() : eventDTO.status,
+            found.push({
+              key: `${eventDTO.uid}|${occurrenceDate.toISOString()}`,
+              exception: true,
+              event: {
+                ...eventDTO,
+                summary: exceptionEvent.summary || eventDTO.summary,
+                description: exceptionEvent.description || eventDTO.description,
+                location: exceptionEvent.location || eventDTO.location,
+                startDate: details.startDate.toJSDate(),
+                endDate: details.endDate.toJSDate(),
+                status: exceptionStatus ? String(exceptionStatus).toUpperCase() : eventDTO.status,
+              },
             });
           } else {
             // Normal occurrence (no exception)
             const occurrenceEnd = occurrenceEndOf(occurrenceDate);
             if (!overlaps(occurrenceDate, occurrenceEnd)) continue;
 
-            allEvents.push({
-              ...eventDTO,
-              startDate: occurrenceDate,
-              endDate: occurrenceEnd,
-              // Keep other fields (summary, location, attendees, etc.) from original
+            found.push({
+              key: `${eventDTO.uid}|${occurrenceDate.toISOString()}`,
+              event: {
+                ...eventDTO,
+                startDate: occurrenceDate,
+                endDate: occurrenceEnd,
+                // Keep other fields (summary, location, attendees, etc.) from original
+              },
             });
           }
         }
@@ -455,18 +484,84 @@ export function getEventsWithRecurrenceExpansion(
     } else {
       // Non-recurring event: include if it overlaps the time range (a multi-day event started earlier counts)
       if ((eventDTO.endDate > startDate || eventDTO.startDate >= startDate) && eventDTO.startDate < endDate) {
-        allEvents.push(eventDTO);
+        // an event stored alone with a RECURRENCE-ID is one occurrence of a series: its slot, not its
+        // (possibly moved) start, is what identifies it
+        const recurrenceId = recurrenceIdOf(eventDTO._raw);
+        found.push({ key: `${eventDTO.uid}|${recurrenceId ?? eventDTO.startDate.toISOString()}`, event: eventDTO, ...(recurrenceId ? { exception: true } : {}) });
       }
     }
   }
 
-  allEvents.sort((a, b) =>
+  return found;
+}
+
+/** Sort by start, then UID and URL, so that pages stay stable */
+export function sortEvents(events: EventDTO[]): EventDTO[] {
+  return events.sort((a, b) =>
     a.startDate.getTime() - b.startDate.getTime()
     || a.uid.localeCompare(b.uid)
     || a.url.localeCompare(b.url)
   );
+}
 
-  return allEvents;
+/**
+ * The RECURRENCE-ID of an event that carries one, as an instant
+ *
+ * Read with ical.js, like the slots of a series: a file writes `20261111T100000Z`, the expansion
+ * gives `2026-11-11T10:00:00.000Z`, and the two must meet.
+ */
+function recurrenceIdOf(ics: string | undefined): string | undefined {
+  // the property is rare: a substring test keeps most events out of a second parse
+  if (ics === undefined || !ics.includes('RECURRENCE-ID')) return undefined;
+  try {
+    const component = ICAL.parse(ics);
+    const vevent = new ICAL.Component(component).getFirstSubcomponent('vevent');
+    const value = vevent?.getFirstPropertyValue('recurrence-id') as ICAL.Time | null | undefined;
+    return value?.toJSDate().toISOString();
+  } catch {
+    return undefined;
+  }
+}
+
+/** An event with the identity the deduplication uses */
+export interface FoundEvent {
+  /** the UID and the slot the series gives the occurrence, which two copies agree on */
+  key: string;
+  event: EventDTO;
+  /** this occurrence was replaced by a RECURRENCE-ID exception: its version wins over a plain copy */
+  exception?: boolean;
+}
+
+/**
+ * One event per UID, even when several calendars hold it
+ *
+ * An account often sees the same event more than once: an invitation accepted and copied into the
+ * user's own calendar, a team meeting shown on every member's calendar, the same event shared twice.
+ * They carry the same UID (RFC 5545: unique per event), so they are one event. The first copy in the
+ * server's calendar order is the one kept: the copies may disagree on the attendees, and none of them
+ * is more right than another without a rule the user chose.
+ *
+ * @param found - the events, each with its key, in the order the expansion pushed them
+ * @param logger - Pino logger
+ * @returns every event once, an occurrence at a time
+ */
+export function deduplicateEvents(found: FoundEvent[], logger: Logger): EventDTO[] {
+  const unique = new Map<string, FoundEvent>();
+  for (const entry of found) {
+    const seen = unique.get(entry.key);
+    if (!seen) {
+      unique.set(entry.key, entry);
+      continue;
+    }
+    // an occurrence replaced by an exception is the current version of it: it wins over a plain copy
+    if (entry.exception && !seen.exception) {
+      unique.set(entry.key, entry);
+      logger.debug({ uid: entry.event.uid, url: entry.event.url }, 'Keeping the exception of an event another calendar lists');
+      continue;
+    }
+    logger.debug({ uid: entry.event.uid, date: entry.event.startDate.toISOString(), url: entry.event.url }, 'Skipping an event another calendar already lists');
+  }
+  return [...unique.values()].map((entry) => entry.event);
 }
 
 export const DEFAULT_EVENT_LIMIT = 50;

@@ -15,7 +15,7 @@ import type { CalendarService } from '../../caldav/calendar-service.js';
 import * as chrono from 'chrono-node';
 import {
   resolveCalendarEvents,
-  getEventsWithRecurrenceExpansion,
+  expandEvents,
   computeBusyPeriods,
   checkWindow,
   formatAllDaySpan,
@@ -55,7 +55,16 @@ export function buildAvailabilityText(
     lines.push('', `${periods.length} busy period(s) found.`);
   }
 
-  const allDay = events.filter((e) => e.allDay && e.status !== 'CANCELLED');
+  // one entry per all-day event, even when several calendars hold it: the busy periods above merge
+  // by themselves, but this list would repeat the same holiday once per calendar
+  const seen = new Set<string>();
+  const allDay = events.filter((e) => {
+    if (!e.allDay || e.status === 'CANCELLED') return false;
+    const key = `${e.uid}|${e.startDate.toISOString()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   if (allDay.length) {
     lines.push(
       '',
@@ -142,7 +151,8 @@ export function registerCheckAvailabilityTool(
           return { content: [{ type: 'text' as const, text: windowProblem }], isError: true };
         }
         const rawEvents = await resolveCalendarEvents(calendarService, params.calendar, defaultCalendar, timeRange);
-        const events = getEventsWithRecurrenceExpansion(rawEvents, timeRange, logger);
+        // no deduplication here: each copy carries its own TRANSP, and the busy periods are merged anyway
+        const events = expandEvents(rawEvents, timeRange, logger).map((found) => found.event);
         // Anything not read could be what makes this time busy.
         if (hasPartialRead()) {
           return {

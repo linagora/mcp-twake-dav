@@ -4,6 +4,9 @@ All notable changes to mcp-twake-dav are documented here. The format follows [Ke
 
 ## [Unreleased]
 
+### Fixed
+- An event held by several calendars — an invitation copied into the user's own calendar, a team meeting, an event shared twice — was listed once per calendar: it is now listed once, the copy of the calendar the server lists first — or the copy carrying the changed occurrence, when one calendar modified it and another did not — and `check_availability` lists an all-day event once too. Two occurrences of one series that were moved onto the same time stay two entries.
+
 ## [4.2.1] - 2026-11-11
 
 ### Fixed
