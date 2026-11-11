@@ -334,6 +334,10 @@ export function getEventsWithRecurrenceExpansion(
   const startDate = new Date(timeRange.start);
   const endDate = new Date(timeRange.end);
   const allEvents: EventDTO[] = [];
+  // the identity of each event for the deduplication: the UID and the slot the series gives it, which
+  // two calendars sharing it agree on, and which tells two occurrences of a series apart even when one
+  // was moved onto the other's time
+  const keys: string[] = [];
 
   for (const rawEvent of rawEvents) {
     // Transform to EventDTO
@@ -422,6 +426,7 @@ export function getEventsWithRecurrenceExpansion(
             // For non-cancelled exceptions, use the exception's dates and summary
             const exceptionEvent = details.item;
             if (!overlaps(details.startDate.toJSDate(), details.endDate.toJSDate())) continue;
+            keys.push(`${eventDTO.uid}|${occurrenceDate.toISOString()}`);
             allEvents.push({
               ...eventDTO,
               summary: exceptionEvent.summary || eventDTO.summary,
@@ -436,6 +441,7 @@ export function getEventsWithRecurrenceExpansion(
             const occurrenceEnd = occurrenceEndOf(occurrenceDate);
             if (!overlaps(occurrenceDate, occurrenceEnd)) continue;
 
+            keys.push(`${eventDTO.uid}|${occurrenceDate.toISOString()}`);
             allEvents.push({
               ...eventDTO,
               startDate: occurrenceDate,
@@ -455,18 +461,46 @@ export function getEventsWithRecurrenceExpansion(
     } else {
       // Non-recurring event: include if it overlaps the time range (a multi-day event started earlier counts)
       if ((eventDTO.endDate > startDate || eventDTO.startDate >= startDate) && eventDTO.startDate < endDate) {
+        keys.push(`${eventDTO.uid}|${eventDTO.startDate.toISOString()}`);
         allEvents.push(eventDTO);
       }
     }
   }
 
-  allEvents.sort((a, b) =>
+  // deduplicate before sorting: the keys are in the order of allEvents, which the sort changes
+  return withoutDuplicates(allEvents, keys, logger).sort((a, b) =>
     a.startDate.getTime() - b.startDate.getTime()
     || a.uid.localeCompare(b.uid)
     || a.url.localeCompare(b.url)
   );
+}
 
-  return allEvents;
+/**
+ * One event per UID, even when several calendars hold it
+ *
+ * An account often sees the same event more than once: an invitation accepted and copied into the
+ * user's own calendar, a team meeting shown on every member's calendar, the same event shared twice.
+ * They carry the same UID (RFC 5545: unique per event), so they are one event with one attendee list.
+ *
+ * @param events - the events of every calendar, sorted by start, UID and URL
+ * @param logger - Pino logger
+ * @returns every event once, an occurrence at a time, with the attendees of all its copies
+ */
+function withoutDuplicates(events: EventDTO[], keys: string[], logger: Logger): EventDTO[] {
+  const unique = new Map<string, EventDTO>();
+  events.forEach((event, index) => {
+    const key = keys[index] ?? `${event.uid}|${event.startDate.toISOString()}`;
+    const seen = unique.get(key);
+    if (!seen) {
+      unique.set(key, event);
+      return;
+    }
+    // the copies may disagree on the attendees (each calendar carries its own PARTSTAT lines)
+    const attendees = [...new Set([...seen.attendees, ...event.attendees])];
+    unique.set(key, attendees.length === seen.attendees.length ? seen : { ...seen, attendees });
+    logger.debug({ uid: event.uid, date: event.startDate.toISOString(), url: event.url }, 'Skipping an event another calendar already lists');
+  });
+  return [...unique.values()];
 }
 
 export const DEFAULT_EVENT_LIMIT = 50;
