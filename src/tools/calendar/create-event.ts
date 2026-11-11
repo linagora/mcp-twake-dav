@@ -156,12 +156,19 @@ export function registerCreateEventTool(
           };
         }
 
-        // The calendar the event will really go to: resolving it now names it in the approval, and
-        // refuses before it when the account has none it may write to
+        // The calendar the event will really go to: resolving it now names it in the approval, refuses
+        // before it when the account has none it may write to, and is the one the write uses
         let destination: string | undefined;
         try {
           const chosen = await calendarService.resolveCreateTarget(resolvedCalendar);
           destination = typeof chosen.displayName === 'string' ? chosen.displayName : chosen.url;
+          // a calendar named by hand and known to be read-only: say it now, not after the approval
+          if (params.calendar && calendarService.calendarAccess(chosen) === 'read') {
+            return {
+              content: [{ type: 'text' as const, text: `The calendar "${destination}" is read-only: name a calendar you may write to.\n\nFix: Use list_calendars to see the calendars and their access.` }],
+              isError: true,
+            };
+          }
         } catch (error) {
           return {
             content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }],
@@ -197,7 +204,7 @@ export function registerCreateEventTool(
         });
         if (refused) return refused;
         // Create event
-        const result = await calendarService.createEvent(iCalString, resolvedCalendar);
+        const result = await calendarService.createEvent(iCalString, destination ?? resolvedCalendar);
 
         // Format success response with user timezone
         const displayTimezone = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -225,7 +232,7 @@ export function registerCreateEventTool(
           .filter(line => line !== '')
           .join('\n');
 
-        logger.info({ url: result.url, calendar: resolvedCalendar }, 'Event created successfully');
+        logger.info({ url: result.url, calendar: destination }, 'Event created successfully');
 
         return {
           content: [

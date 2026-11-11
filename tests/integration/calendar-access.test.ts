@@ -317,6 +317,35 @@ describe('calendar access rights', () => {
     }
   });
 
+  it('writes into a calendar whose rights are unknown when the others are read-only', async () => {
+    // one home refuses to give its rights: its calendar was never checked, and is the only chance
+    const partial = await startFakeDav(['Shared', 'Mine'], { readOnly: ['Shared'] });
+    partial.handler = (req) => {
+      if (req.method === 'PUT') return { status: 201, headers: { etag: '"1"' } };
+      if (req.method === 'PROPFIND' && req.body.includes('current-user-privilege-set')) {
+        // only "Shared" answers, with a read-only privilege: "Mine" is left without rights
+        return {
+          status: 207,
+          headers: { 'content-type': 'application/xml; charset=utf-8' },
+          body: `<d:multistatus xmlns:d="DAV:"><d:response><d:href>/calendars/u1/Shared/</d:href><d:propstat><d:prop><d:displayname>Shared</d:displayname><d:owner><d:href>/principals/u1/</d:href></d:owner><d:current-user-principal><d:href>/principals/u1/</d:href></d:current-user-principal><d:current-user-privilege-set><d:privilege><d:read/></d:privilege></d:current-user-privilege-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`,
+        };
+      }
+      return null;
+    };
+    try {
+      const config = { DAV_URL: partial.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_APPROVAL: 'client' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      await service.createEvent('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n');
+      const put = partial.requests.filter((request) => request.method === 'PUT');
+      expect(put).toHaveLength(1);
+      expect(put[0].url).toContain('/Mine/');
+    } finally {
+      await partial.close();
+    }
+  });
+
   it('refuses to create an event when no calendar may be written to, before asking for approval', async () => {
     // every calendar is read-only: the answer comes before the approval, and is not "event not found"
     const readOnly = await startFakeDav(['Shared'], { readOnly: ['Shared'] });

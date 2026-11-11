@@ -443,7 +443,7 @@ export class CalendarService {
    * Create a new calendar event
    *
    * @param iCalString - Complete iCalendar string to create
-   * @param calendarName - Optional calendar display name (case-insensitive), defaults to first calendar
+   * @param calendarName - Optional calendar display name (case-insensitive); without it, the first calendar the account may write to (see resolveCreateTarget())
    * @returns Object with url and etag of the created event
    * @throws ConflictError if 412 response (event with this UID already exists)
    * @throws Error if calendar not found or creation fails
