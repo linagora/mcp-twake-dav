@@ -15,6 +15,9 @@ jobs:
       fail-fast: false
       matrix:
         node-version: [20, 22]
+        # a day, a range and a week are read in the machine's timezone: run west of UTC as well, so
+        # that a fixture or a boundary built in UTC cannot pass here and fail for a user
+        tz: [UTC, America/New_York]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -24,6 +27,8 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+        env:
+          TZ: ${{ matrix.tz }}
       # npm ci follows the lockfile; a published package does not.
       - run: node scripts/check-packed-install.mjs
 
