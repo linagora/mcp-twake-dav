@@ -338,7 +338,7 @@ export function getEventsWithRecurrenceExpansion(
 }
 
 /**
- * Expand the series and sort, keeping each event with the identity the deduplication uses
+ * Expand the series, keeping each event with the identity the deduplication uses (the caller sorts)
  *
  * For the tools that filter before showing anything (a search, a busy period): keeping one copy
  * before the filter would drop an event whose other copy is the one that matches. The caller sorts
