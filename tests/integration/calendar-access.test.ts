@@ -138,7 +138,7 @@ describe('calendar access rights', () => {
       const service = new CalendarService(clients.caldav, logger, config);
 
       expect(service.calendarAccess((await service.listCalendars())[0])).toBeUndefined();
-      await expect(service.fetchEventsByAccess('mine')).rejects.toThrow(/does not publish the access rights[\s\S]*name a calendar or use "all"/);
+      await expect(service.fetchEventsByAccess('mine')).rejects.toThrow(/does not publish the access rights[\s\S]*name a calendar\./);
     } finally {
       await blind.close();
     }
