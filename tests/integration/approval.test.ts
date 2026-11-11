@@ -123,6 +123,8 @@ describe('prior approval of writes', () => {
     const t = setup();
     await t.call('create_event', WRITES[0][1]);
     expect(t.prompts[0]).toContain('Titre : Point budget');
+    // the calendar the event really goes to is named, not "first calendar"
+    expect(t.prompts[0]).toContain('Agenda : Perso');
     expect(t.prompts[0]).toContain('Quand : 2026-11-05 14:00 → 15:00 (Europe/Paris)');
     expect(t.prompts[0]).toContain('Invités : Bob DURAND <bob.durand@example.com> (ils reçoivent une invitation envoyée en votre nom)');
     await t.call('delete_event', { uid: 'ev-1' });

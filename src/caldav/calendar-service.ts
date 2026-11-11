@@ -680,15 +680,18 @@ export class CalendarService {
       return match;
     }
 
+    // the user's own calendars, then the ones shared with write access, then the ones whose rights the
+    // server did not give (one home may refuse while the others answer): only the last resort is an error
     const writable =
       this.calendars.find((calendar) => this.calendarAccess(calendar) === 'mine') ??
-      this.calendars.find((calendar) => this.calendarAccess(calendar) === 'write');
+      this.calendars.find((calendar) => this.calendarAccess(calendar) === 'write') ??
+      this.calendars.find((calendar) => this.calendarAccess(calendar) === undefined);
     if (writable) return writable;
-    // the rights are known, and none of them allows a write: say it now, not after the approval
-    if (this.calendars.some((calendar) => this.calendarAccess(calendar) !== undefined)) {
-      throw new Error('No calendar you may write to was found, so an event cannot be created.\n\nFix: Use list_calendars to see the calendars and their access.');
+    if (this.calendars.length === 0) {
+      throw new Error('This account has no calendar to create an event in.\n\nFix: Create one in the Calendar web interface, then try again.');
     }
-    return this.calendars[0];
+    // every calendar answered, and none allows a write: say it now, not after the approval
+    throw new Error('No calendar you may write to was found, so an event cannot be created.\n\nFix: Use list_calendars to see the calendars and their access.');
   }
 
   /**

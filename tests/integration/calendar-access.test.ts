@@ -317,6 +317,30 @@ describe('calendar access rights', () => {
     }
   });
 
+  it('refuses to create an event when no calendar may be written to, before asking for approval', async () => {
+    // every calendar is read-only: the answer comes before the approval, and is not "event not found"
+    const readOnly = await startFakeDav(['Shared'], { readOnly: ['Shared'] });
+    readOnly.handler = (req) => (req.method === 'PUT' ? { status: 201, headers: { etag: '"1"' } } : null);
+    try {
+      const config = { DAV_URL: readOnly.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_APPROVAL: 'client' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+      const server = createServer(service, new AddressBookService(clients.carddav, logger), logger, undefined, undefined, undefined, { DAV_APPROVAL: 'client' });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await server.connect(serverTransport);
+      const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+      await scoped.connect(clientTransport);
+
+      const answer = await scoped.callTool({ name: 'create_event', arguments: { title: 'Point', start: '2026-11-12T10:00:00', end: '2026-11-12T11:00:00' } });
+      const text = (answer.content as Array<{ text: string }>).map((content) => content.text).join('\n');
+      expect(text).toContain('No calendar you may write to');
+      expect(readOnly.requests.filter((request) => request.method === 'PUT')).toHaveLength(0);
+      await scoped.close();
+    } finally {
+      await readOnly.close();
+    }
+  });
+
   it('refuses to create an event in a group before asking for approval', async () => {
     const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
     const clients = await createDualClients(config, logger);
