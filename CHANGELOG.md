@@ -4,6 +4,9 @@ All notable changes to mcp-twake-dav are documented here. The format follows [Ke
 
 ## [Unreleased]
 
+### Fixed
+- `DAV_TOKEN_COMMAND` runs through the system shell: `cmd.exe` on Windows, where `/bin/sh` does not exist and the server got no token, and `/bin/sh` on macOS and Linux as before.
+
 ## [4.2.0] - 2026-11-02
 
 ### Fixed
