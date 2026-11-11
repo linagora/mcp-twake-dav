@@ -307,7 +307,6 @@ export function searchEventsByAttendee(events: EventDTO[], name: string): EventD
 // shortcut: a series above this in one range is cut with a warning, raise it if a real calendar needs it
 const MAX_OCCURRENCES_PER_SERIES = 10_000;
 
-
 /**
  * Get events with recurrence expansion
  *
