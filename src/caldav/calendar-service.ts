@@ -465,7 +465,14 @@ export class CalendarService {
       }
       targetCalendar = match;
     } else {
-      targetCalendar = this.calendars[0];
+      // No name: the first calendar the account may write to, its own before the ones shared with
+      // write access. A server that publishes no rights keeps the old behaviour (the first calendar).
+      const writable = [
+        ...this.calendars.filter((calendar) => this.calendarAccess(calendar) === 'mine'),
+        ...this.calendars.filter((calendar) => this.calendarAccess(calendar) === 'write'),
+      ];
+      targetCalendar = writable[0] ?? this.calendars[0];
+      this.logger.info({ calendar: targetCalendar.displayName, url: targetCalendar.url }, 'create_event: no calendar named, wrote into the first writable one');
     }
 
     // Generate filename

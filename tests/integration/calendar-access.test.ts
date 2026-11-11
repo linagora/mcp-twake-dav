@@ -299,6 +299,24 @@ describe('calendar access rights', () => {
     }
   });
 
+  it('writes an event into the first calendar it may write to, not into the first one', async () => {
+    // "Shared" comes first and is read-only: a blind calendars[0] would fail there
+    const writable = await startFakeDav(['Shared', 'Perso'], { readOnly: ['Shared'] });
+    writable.handler = (req) => (req.method === 'PUT' ? { status: 201, headers: { etag: '"1"' } } : null);
+    try {
+      const config = { DAV_URL: writable.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_APPROVAL: 'client' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      await service.createEvent('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n');
+      const put = writable.requests.filter((request) => request.method === 'PUT');
+      expect(put).toHaveLength(1);
+      expect(put[0].url).toContain('/Perso/');
+    } finally {
+      await writable.close();
+    }
+  });
+
   it('refuses to create an event in a group before asking for approval', async () => {
     const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
     const clients = await createDualClients(config, logger);
