@@ -6,7 +6,7 @@ All notable changes to mcp-twake-dav are documented here. The format follows [Ke
 
 ### Changed
 
-- `calendar: "all"` now follows `DAV_DEFAULT_CALENDAR` when one is set, in every tool: reading, the tools that find an event by UID, and the invitations. It used to mean every calendar there, while `list_invitations` already read the default. Without a default it still means every calendar.
+- Two invitation tools now follow `DAV_DEFAULT_CALENDAR` as the reading tools already did: `list_invitations(calendar: "all")` searched every calendar in 4.2.1, and `respond_to_invitation` without a calendar did too. Both read the default calendar when one is set, and every calendar otherwise.
 
 ### Added
 - `list_calendars` groups the calendars by access rights, read from `DAV:current-user-privilege-set`, `DAV:owner` (RFC 3744) and `DAV:share-access` (the CalDAV sharing extension, which SabreDAV publishes): the calendars the user owns, those shared with write access, and those shared read-only. `get_todays_schedule`, `get_events_in_range`, `get_next_event`, `search_events` and `check_availability` accept `calendar: "mine"`, `"writable"`, `"shared-write"` or `"read-only"` to query one group, so the meetings of colleagues' calendars no longer land in the user's agenda. A group also works as `DAV_DEFAULT_CALENDAR`; the tools that find an event by UID (`update_event`, `delete_event`, `add_alarm`, `remove_alarm`) and `list_invitations` search the calendars of the group, while `create_event` asks for a calendar name; every tool reads `"all"` the same way — the default calendar when one is set, every calendar otherwise, whatever the case — and `respond_to_invitation` follows the default calendar as `list_invitations` does; and a default of `all` now means no default at all.
