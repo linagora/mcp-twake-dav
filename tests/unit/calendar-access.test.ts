@@ -198,9 +198,91 @@ describe('CalendarService: refreshCalendars', () => {
 
     // let the first discovery reach its PROPFIND
     await new Promise((resolve) => setImmediate(resolve));
+    // the refresh waits for it: it must not start a second discovery of its own meanwhile
+    expect(discoveries).toBe(1);
+
     answer(rights);
     await first;
     await expect(refreshed).resolves.toHaveLength(1);
     expect(service.calendarAccess(calendars[0])).toBe('mine');
+  });
+});
+
+describe('CalendarService: what the rights table keeps', () => {
+  const logger = pino({ level: 'silent' });
+  const calendars = [
+    { url: 'https://dav.example.com/calendars/u1/A/', displayName: 'A' },
+    { url: 'https://dav.example.com/calendars/u1/B/', displayName: 'B' },
+  ];
+  const privileges = { privilege: [{ read: {} }, { write: {} }] };
+
+  it('keeps the calendars, not the home, the inbox or the outbox', async () => {
+    const client = {
+      fetchCalendars: async () => calendars,
+      propfind: async () => [
+        { href: '/calendars/u1/', props: { owner: { href: '/principals/u1/' }, currentUserPrivilegeSet: privileges } },
+        { href: '/calendars/u1/inbox/', props: { currentUserPrivilegeSet: privileges } },
+        { href: '/calendars/u1/outbox/', props: { currentUserPrivilegeSet: privileges } },
+        { href: '/calendars/u1/A/', props: { displayname: 'A', owner: { href: '/principals/u1/' }, currentUserPrincipal: { href: '/principals/u1/' }, currentUserPrivilegeSet: privileges } },
+        { href: '/calendars/u1/B/', props: { displayname: 'B', owner: { href: '/principals/team/' }, currentUserPrincipal: { href: '/principals/u1/' }, currentUserPrivilegeSet: privileges } },
+      ],
+      fetchCalendarObjects: async () => [],
+    } as unknown as DAVClientType;
+
+    const service = new CalendarService(client, logger, {} as Config);
+    await service.listCalendars();
+
+    expect(service.calendarAccess(calendars[0])).toBe('mine');
+    expect(service.calendarAccess(calendars[1])).toBe('write');
+    // the collections that are not calendars got no entry, under no name either
+    expect(service.sharingOf({ url: 'https://dav.example.com/calendars/u1/inbox/', displayName: 'inbox' })).toBeUndefined();
+  });
+
+  it('falls back to the principal of the account when the home does not give it', async () => {
+    const client = {
+      account: { principalUrl: '/principals/u1/' },
+      fetchCalendars: async () => calendars,
+      propfind: async () => [
+        { href: '/calendars/u1/A/', props: { displayname: 'A', owner: { href: '/principals/u1/' }, currentUserPrivilegeSet: privileges } },
+        { href: '/calendars/u1/B/', props: { displayname: 'B', owner: { href: '/principals/team/' }, currentUserPrivilegeSet: privileges } },
+      ],
+      fetchCalendarObjects: async () => [],
+    } as unknown as DAVClientType;
+
+    const service = new CalendarService(client, logger, {} as Config);
+    await service.listCalendars();
+
+    expect(service.calendarAccess(calendars[0])).toBe('mine');
+    expect(service.calendarAccess(calendars[1])).toBe('write');
+  });
+});
+
+describe('CalendarService: one calendar home that refuses', () => {
+  const logger = pino({ level: 'silent' });
+
+  it('keeps the rights the other homes give', async () => {
+    const calendars = [
+      { url: 'https://dav.example.com/calendars/u1/A/', displayName: 'A' },
+      { url: 'https://dav.example.com/calendars/u2/B/', displayName: 'B' },
+    ];
+    const client = {
+      fetchCalendars: async () => calendars,
+      propfind: async ({ url }: { url: string }) => {
+        if (url.includes('/calendars/u1/')) throw new Error('503 Service Unavailable');
+        return [
+          {
+            href: '/calendars/u2/B/',
+            props: { displayname: 'B', owner: { href: '/principals/u1/' }, currentUserPrincipal: { href: '/principals/u1/' }, currentUserPrivilegeSet: { privilege: [{ read: {} }, { write: {} }] } },
+          },
+        ];
+      },
+      fetchCalendarObjects: async () => [],
+    } as unknown as DAVClientType;
+
+    const service = new CalendarService(client, logger, {} as Config);
+    await service.listCalendars();
+
+    expect(service.calendarAccess(calendars[0])).toBeUndefined();
+    expect(service.calendarAccess(calendars[1])).toBe('mine');
   });
 });

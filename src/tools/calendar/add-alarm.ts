@@ -10,6 +10,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Logger } from 'pino';
 import type { CalendarService } from '../../caldav/calendar-service.js';
 import { ConflictError } from '../../errors.js';
+import { usableCalendarName } from './utils.js';
 import { addAlarmToEvent } from '../../transformers/event-builder.js';
 import { approverFor } from '../../approval.js';
 
@@ -50,7 +51,7 @@ export function registerAddAlarmTool(
         // Resolve target calendar
         const resolvedCalendar = params.calendar === 'all'
           ? undefined
-          : (params.calendar || defaultCalendar || undefined);
+          : usableCalendarName(params.calendar || defaultCalendar);
 
         // Find event by UID
         const event = await calendarService.findEventByUid(params.uid, resolvedCalendar);

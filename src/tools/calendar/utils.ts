@@ -17,7 +17,7 @@ import { z } from 'zod';
 import type { Logger } from 'pino';
 import type { DAVCalendarObject } from 'tsdav';
 import type { CalendarService, TimeRange } from '../../caldav/calendar-service.js';
-import type { CalendarAccess } from '../../caldav/access.js';
+import { CALENDAR_GROUPS, isCalendarGroup } from '../../caldav/access.js';
 import type { EventDTO, FreeBusyPeriod } from '../../types/dtos.js';
 import { addReadWarning, hasPartialRead } from '../../caldav/dav-fetch.js';
 import { transformCalendarObject } from '../../transformers/event.js';
@@ -607,22 +607,24 @@ export async function resolveCalendarEvents(
   if (wanted) {
     // A group of access rights rather than one name: "mine", "writable", "read-only". A calendar
     // that actually carries one of those names keeps it.
-    const access = ACCESS_GROUPS[wanted.toLowerCase()];
+    const access = CALENDAR_GROUPS[wanted.toLowerCase()];
     if (access && !(await calendarService.hasCalendarNamed(wanted))) return calendarService.fetchEventsByAccess(access, timeRange);
     return calendarService.fetchEventsByCalendarName(wanted, timeRange);
   }
   return calendarService.fetchAllEvents(timeRange);
 }
 
-/** What the `calendar` parameter of the query tools also accepts, by lowercase name */
-const ACCESS_GROUPS: Record<string, CalendarAccess[]> = {
-  mine: ['mine'],
-  // everything the account may write: its own calendars and the ones shared with write access
-  writable: ['mine', 'write'],
-  'shared-write': ['write'],
-  'read-only': ['read'],
-  readonly: ['read'],
-};
+
+/**
+ * A calendar name a writing tool may use: "all" and the group names are not calendars
+ *
+ * @param name - the calendar the user or the configuration named
+ * @returns the name to look up, or undefined to search every calendar
+ */
+export function usableCalendarName(name: string | undefined): string | undefined {
+  const wanted = name?.trim();
+  return !wanted || wanted.toLowerCase() === 'all' || isCalendarGroup(wanted) ? undefined : wanted;
+}
 
 /**
  * Description of the `calendar` parameter, shared by the query tools

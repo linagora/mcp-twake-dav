@@ -198,6 +198,18 @@ describe('calendar access rights', () => {
     await scoped.close();
   });
 
+  it('reads the invitations of every calendar when the default is "all" or a group', async () => {
+    for (const configured of ['all', 'mine']) {
+      const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_DEFAULT_CALENDAR: configured, DAV_ORGANIZER_EMAIL: 'u@example.com' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      await expect(service.listPendingInvitations(undefined, undefined), configured).resolves.toEqual([]);
+      // "all" still means every calendar, whatever the default
+      await expect(service.listPendingInvitations(undefined, 'all'), configured).resolves.toEqual([]);
+    }
+  });
+
   it('names the empty group and how to list the calendars', async () => {
     const lonely = await startFakeDav(['Perso']);
     try {

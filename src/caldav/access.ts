@@ -194,3 +194,23 @@ export async function discoverCalendarAccess(
   logger.info({ count: sharing.size, homes }, 'Discovered calendar access rights');
   return sharing;
 }
+
+/** The names the query tools accept for a group of calendars, by lowercase name */
+export const CALENDAR_GROUPS: Record<string, CalendarAccess[]> = {
+  mine: ['mine'],
+  // everything the account may write: its own calendars and the ones shared with write access
+  writable: ['mine', 'write'],
+  'shared-write': ['write'],
+  'read-only': ['read'],
+  readonly: ['read'],
+};
+
+/**
+ * Whether a name designates a group of calendars rather than one calendar
+ *
+ * @param name - what the model or the configuration gave as a calendar
+ * @returns true for "mine", "writable", "shared-write", "read-only" and "readonly", whatever the case and spaces
+ */
+export function isCalendarGroup(name: string): boolean {
+  return Object.hasOwn(CALENDAR_GROUPS, name.trim().toLowerCase());
+}

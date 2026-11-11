@@ -15,7 +15,7 @@ import type { Config } from '../config/schema.js';
 import { CollectionCache } from './cache.js';
 import { withRetry } from './retry.js';
 import { discoverCalendars, discoverSchedulingInbox } from './discovery.js';
-import { calendarKey, discoverCalendarAccess, type CalendarAccess, type CalendarSharing } from './access.js';
+import { calendarKey, discoverCalendarAccess, isCalendarGroup, type CalendarAccess, type CalendarSharing } from './access.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictError, DavHttpError, isDavUnsupported } from '../errors.js';
 import { addReadWarning, hasPartialRead } from './dav-fetch.js';
@@ -23,9 +23,6 @@ import { transformCalendarObject } from '../transformers/event.js';
 import { transformInvitation } from '../transformers/invitation.js';
 import { updateAttendeePartstat } from '../transformers/event-builder.js';
 import type { EventDTO, InvitationDTO } from '../types/dtos.js';
-
-/** The names the reading tools accept for a group of calendars */
-const GROUP_NAMES = ['mine', 'writable', 'shared-write', 'read-only', 'readonly'];
 
 /**
  * ISO 8601 time range for server-side calendar filtering
@@ -325,6 +322,13 @@ export class CalendarService {
     return objects;
   }
 
+  /** DAV_DEFAULT_CALENDAR, unless it is "all" or a group of access rights, which no calendar is called */
+  private configuredDefaultCalendar(): string | undefined {
+    const configured = this.config.DAV_DEFAULT_CALENDAR?.trim();
+    if (!configured || configured.toLowerCase() === 'all' || isCalendarGroup(configured)) return undefined;
+    return configured;
+  }
+
   /**
    * The error for a name that matches no calendar, saying why when it is a group of access rights
    *
@@ -332,7 +336,7 @@ export class CalendarService {
    * calendars at once has no meaning, so a write needs a calendar name.
    */
   private notFound(name: string): Error {
-    if (GROUP_NAMES.includes(name.trim().toLowerCase())) {
+    if (isCalendarGroup(name)) {
       return new Error(
         `"${name}" is a group of calendars, not a calendar: name the calendar to use.\n\nFix: Use list_calendars to see the names; the groups work for reading only.`
       );
@@ -715,9 +719,8 @@ export class CalendarService {
     const email = this.attendeeEmail();
     const range = timeRange ?? { start: new Date().toISOString(), end: new Date(Date.now() + 30 * 86400000).toISOString() };
     await this.listCalendars();
-    const configured = this.config.DAV_DEFAULT_CALENDAR?.trim();
-    const groupDefault = configured !== undefined && GROUP_NAMES.includes(configured.toLowerCase());
-    const wanted = !calendarName || calendarName === 'all' ? (groupDefault ? undefined : configured) : calendarName;
+    // "all", or a group of access rights, is not a calendar: invitations then come from every calendar
+    const wanted = calendarName === 'all' ? undefined : calendarName ?? this.configuredDefaultCalendar();
     const targets = wanted
       ? this.calendars.filter((cal) => String(cal.displayName || '').toLowerCase() === wanted.trim().toLowerCase())
       : this.calendars;
