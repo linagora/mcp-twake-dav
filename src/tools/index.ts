@@ -187,6 +187,7 @@ export function registerAllTools(
             `${groups.mine.length} yours`,
             `${groups.write.length} shared with write access`,
             `${groups.read.length} shared read-only`,
+            ...(unknown.length > 0 ? [`${unknown.length} with access rights unknown`] : []),
           ];
           sections.push(`Available calendars (${calendars.length}): ${counts.join(', ')}`);
           if (groups.mine.length > 0) sections.push(`My calendars (${groups.mine.length}):\n\n${render(groups.mine)}`);

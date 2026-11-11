@@ -602,9 +602,10 @@ export async function resolveCalendarEvents(
     ? (defaultCalendar || undefined)
     : (calendarParam || defaultCalendar);
   if (target) {
-    // A group of access rights rather than one name: "mine", "writable", "read-only"
+    // A group of access rights rather than one name: "mine", "writable", "read-only". A calendar
+    // that actually carries one of those names keeps it.
     const access = ACCESS_GROUPS[target.trim().toLowerCase()];
-    if (access) return calendarService.fetchEventsByAccess(access, timeRange);
+    if (access && !(await calendarService.hasCalendarNamed(target))) return calendarService.fetchEventsByAccess(access, timeRange);
     return calendarService.fetchEventsByCalendarName(target, timeRange);
   }
   return calendarService.fetchAllEvents(timeRange);

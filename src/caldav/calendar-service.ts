@@ -57,7 +57,9 @@ export class CalendarService {
   private readonly objectCache: CollectionCache<DAVCalendarObject>;
   private calendars: DAVCalendar[] = [];
   private sharing = new Map<string, CalendarSharing>();
-  private sharingLoaded = false;
+  /** the discovery in flight: two tools called at once wait for the same one, and see the same calendars and rights */
+  private loading?: Promise<void>;
+  private loaded = false;
   private schedulingInboxUrl: string | null | undefined = undefined;
 
   /**
@@ -109,21 +111,37 @@ export class CalendarService {
    * @throws Error if discovery fails after retries
    */
   async listCalendars(): Promise<DAVCalendar[]> {
-    // Lazy initialization: return cached calendars if already loaded
-    if (this.calendars.length > 0) {
-      this.logger.debug('Returning cached calendar list');
-      return this.calendars;
-    }
-
-    // Discover calendars with retry
-    this.calendars = await withRetry(
-      () => discoverCalendars(this.client, this.logger),
-      this.logger
-    );
-
-    await this.loadSharing();
-
+    // Lazy initialization: discover once, calendars and their rights together
+    if (!this.loaded) await this.load();
+    this.logger.debug('Returning cached calendar list');
     return this.calendars;
+  }
+
+  /**
+   * Discover the calendars and their access rights, once for every caller
+   *
+   * A tool call arriving while the first one runs waits for the same promise: it used to
+   * see the calendars of a half-finished discovery, with no access rights at all.
+   */
+  private load(): Promise<void> {
+    this.loading ??= (async () => {
+      try {
+        if (this.calendars.length === 0) {
+          this.calendars = await withRetry(() => discoverCalendars(this.client, this.logger), this.logger);
+        }
+        // a server that does not publish the rights, or one that keeps failing, leaves them unknown
+        this.sharing = await withRetry(() => discoverCalendarAccess(this.client, this.calendars, this.logger), this.logger).catch((err) => {
+          this.logger.warn({ err }, 'Calendar access rights not available, listing calendars without them');
+          return new Map<string, CalendarSharing>();
+        });
+        this.loaded = true;
+      } catch (error) {
+        // a failed discovery is tried again by the next call
+        this.loading = undefined;
+        throw error;
+      }
+    })();
+    return this.loading;
   }
 
   /**
@@ -138,29 +156,17 @@ export class CalendarService {
   async refreshCalendars(): Promise<DAVCalendar[]> {
     this.logger.info('Refreshing calendar list');
 
-    // Re-discover calendars with retry
-    this.calendars = await withRetry(
-      () => discoverCalendars(this.client, this.logger),
-      this.logger
-    );
-
+    // Re-discover calendars and their rights
+    this.loaded = false;
+    this.loading = undefined;
+    this.calendars = [];
     this.sharing = new Map();
-    this.sharingLoaded = false;
-    await this.loadSharing();
+    await this.load();
 
     // Clear object cache since calendars may have changed
     this.objectCache.clear();
 
     return this.calendars;
-  }
-
-  /**
-   * Read the access rights of the calendars once (RFC 3744), and keep them
-   */
-  private async loadSharing(): Promise<void> {
-    if (this.sharingLoaded) return;
-    this.sharingLoaded = true;
-    this.sharing = await discoverCalendarAccess(this.client, this.calendars, this.logger);
   }
 
   /**
@@ -172,6 +178,17 @@ export class CalendarService {
   sharingOf(calendar: DAVCalendar): CalendarSharing | undefined {
     const name = String(calendar.displayName || '').toLowerCase();
     return this.sharing.get(calendarKey(calendar.url)) ?? (name ? this.sharing.get(`name:${name}`) : undefined);
+  }
+
+  /**
+   * Whether one of the calendars has this display name (case-insensitive)
+   *
+   * A group name ("mine", "writable"…) only means a group when no calendar of the account
+   * carries that name.
+   */
+  async hasCalendarNamed(name: string): Promise<boolean> {
+    await this.listCalendars();
+    return this.calendars.some((calendar) => String(calendar.displayName || '').toLowerCase() === name.toLowerCase());
   }
 
   /**
@@ -202,6 +219,12 @@ export class CalendarService {
       return own !== undefined && groups.includes(own);
     });
     if (targets.length === 0) {
+      // say why, rather than blaming a group that the server never described
+      if (this.calendars.every((calendar) => this.calendarAccess(calendar) === undefined)) {
+        throw new Error(
+          'This calendar server does not publish the access rights of its calendars, so a group cannot be queried.\n\nFix: Use list_calendars, then name a calendar or use "all".'
+        );
+      }
       const described = groups
         .map((group) => (group === 'mine' ? 'you as owner' : group === 'write' ? 'write access shared by somebody else' : 'read-only access'))
         .join(' or ');

@@ -26,12 +26,15 @@ export interface FakeDavOptions {
   readOnly?: string[];
   /** Calendars owned by somebody else and shared with write access */
   sharedWithWrite?: string[];
+  /** A server without ACL support: answers no owner and no privilege */
+  withoutAccessRights?: boolean;
 }
 
 const PRINCIPAL = '<d:href>/principals/u1/</d:href>';
 
 /** DAV:owner, DAV:current-user-principal and DAV:current-user-privilege-set of one calendar */
 function accessProps(name: string, options: FakeDavOptions): string {
+  if (options.withoutAccessRights) return '';
   const owner = options.sharedWithWrite?.includes(name) ? '<d:href>/principals/team-1/</d:href>' : PRINCIPAL;
   const privileges = options.readOnly?.includes(name)
     ? '<d:privilege><d:read/></d:privilege><d:privilege><d:read-free-busy/></d:privilege>'

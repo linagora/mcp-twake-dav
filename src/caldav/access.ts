@@ -25,8 +25,8 @@ export interface CalendarSharing {
   owner?: string;
 }
 
-/** Privileges that allow changing the events of a calendar (DAV:write, DAV:write-content) */
-const WRITE_PRIVILEGES = new Set(['write', 'writecontent']);
+/** Privileges that allow changing the events of a calendar (DAV:write, DAV:write-content, and DAV:all) */
+const WRITE_PRIVILEGES = new Set(['write', 'writecontent', 'all']);
 
 /** Normalize an href or an URL to the path that identifies the collection (prefix, encoding, trailing slash aside) */
 export function calendarKey(value: string): string {
@@ -86,14 +86,16 @@ export function classifyAccess(owner: string | undefined, principal: string | un
 /**
  * Ask the calendar home for the access rights of every calendar
  *
- * One PROPFIND on the parent of the calendars: its answer covers all of them.
- * A server that does not support ACL properties, or a failed request, gives an empty
- * map rather than failing the tool call.
+ * One PROPFIND on the parent of the calendars: its answer covers all of them. The
+ * caller decides what a failure means; a server without ACL properties simply answers
+ * no privilege, which classifies nothing.
  *
  * @param client - CalDAV client instance
  * @param calendars - calendars discovered by tsdav
  * @param logger - Pino logger
  * @returns access rights per calendar, under the key of calendarKey(url) and of name:<display name>
+ *   (the name only when it is unambiguous)
+ * @throws whatever the PROPFIND throws, so that the caller can retry it
  */
 export async function discoverCalendarAccess(
   client: DAVClientType,
@@ -105,26 +107,27 @@ export async function discoverCalendarAccess(
   if (!first) return sharing;
 
   const home = new URL('..', first.endsWith('/') ? first : `${first}/`).href;
-  let responses: Array<{ href?: string; props?: Record<string, unknown> }>;
-  try {
-    responses = await client.propfind({
-      url: home,
-      depth: '1',
-      props: {
-        'd:displayname': {},
-        'd:owner': {},
-        'd:current-user-principal': {},
-        'd:current-user-privilege-set': {},
-      },
-    });
-  } catch (err) {
-    logger.warn({ err, home }, 'Calendar access rights not available, listing calendars without them');
-    return sharing;
-  }
+  const responses = await client.propfind({
+    url: home,
+    depth: '1',
+    props: {
+      'd:displayname': {},
+      'd:owner': {},
+      'd:current-user-principal': {},
+      'd:current-user-privilege-set': {},
+    },
+  });
 
   const principal = responses
     .map((response) => (response.props?.currentUserPrincipal as { href?: string } | undefined)?.href)
     .find((href) => !!href);
+
+  // two calendars of the same name are only reachable by URL
+  const names = new Map<string, number>();
+  for (const response of responses) {
+    const name = response.props?.displayname;
+    if (typeof name === 'string' && name) names.set(name.toLowerCase(), (names.get(name.toLowerCase()) ?? 0) + 1);
+  }
 
   for (const response of responses) {
     const privileges = privilegeNames(response.props?.currentUserPrivilegeSet);
@@ -133,7 +136,7 @@ export async function discoverCalendarAccess(
     const entry: CalendarSharing = { access: classifyAccess(owner, principal, privileges), ...(owner ? { owner } : {}) };
     if (response.href) sharing.set(calendarKey(response.href), entry);
     const name = response.props?.displayname;
-    if (typeof name === 'string' && name) sharing.set(`name:${name.toLowerCase()}`, entry);
+    if (typeof name === 'string' && name && names.get(name.toLowerCase()) === 1) sharing.set(`name:${name.toLowerCase()}`, entry);
   }
 
   logger.info({ count: sharing.size, home }, 'Discovered calendar access rights');

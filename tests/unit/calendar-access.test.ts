@@ -37,6 +37,11 @@ describe('classifyAccess', () => {
     expect(classifyAccess('/principals/users/alice/', undefined, WRITABLE)).toBe('mine');
   });
 
+  it('counts DAV:all as write access', () => {
+    expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', ['read', 'all'])).toBe('mine');
+    expect(classifyAccess('/principals/users/team/', '/principals/users/alice/', ['read', 'all'])).toBe('write');
+  });
+
   it('does not mistake write-properties for write access', () => {
     expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', ['read', 'writeproperties'])).toBe('read');
   });

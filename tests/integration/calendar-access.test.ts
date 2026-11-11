@@ -101,6 +101,61 @@ describe('calendar access rights', () => {
     expect(await call('get_todays_schedule', { calendar: 'Team' })).toContain('Event of Team');
   });
 
+  it('waits for the access rights when two tools are called at once', async () => {
+    // a fresh service, as when an assistant calls list_calendars and get_todays_schedule together
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+
+    const [calendars, objects] = await Promise.all([service.listCalendars(), service.fetchEventsByAccess('mine')]);
+
+    expect(calendars.map((calendar) => calendar.displayName)).toEqual(['Perso', 'Shared', 'Team']);
+    expect(service.calendarAccess(calendars[0])).toBe('mine');
+    expect(objects.length).toBeGreaterThan(0);
+  });
+
+  it('explains a server that does not publish the access rights', async () => {
+    const blind = await startFakeDav(['Perso'], { withoutAccessRights: true });
+    try {
+      const config = { DAV_URL: blind.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      expect(service.calendarAccess((await service.listCalendars())[0])).toBeUndefined();
+      await expect(service.fetchEventsByAccess('mine')).rejects.toThrow(/does not publish the access rights[\s\S]*name a calendar or use "all"/);
+    } finally {
+      await blind.close();
+    }
+  });
+
+  it('lets a calendar keep a name that looks like a group', async () => {
+    const named = await startFakeDav(['Perso', 'mine'], { readOnly: ['mine'] });
+    named.handler = (req) => {
+      if (req.method !== 'REPORT') return null;
+      const calendar = ['Perso', 'mine'].find((c) => req.url.includes(`/${c}/`));
+      if (!calendar) return { status: 404 };
+      return calendarObjects([{ href: `/calendars/u1/${calendar}/${calendar}.ics`, ical: event(calendar, `Event of ${calendar}`) }]);
+    };
+    try {
+      const config = { DAV_URL: named.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+      const clients = await createDualClients(config, logger);
+      const server = createServer(new CalendarService(clients.caldav, logger, config), new AddressBookService(clients.carddav, logger), logger);
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await server.connect(serverTransport);
+      const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+      await scoped.connect(clientTransport);
+
+      // the calendar named "mine" answers, not the group of the calendars the account owns
+      const answer = await scoped.callTool({ name: 'get_todays_schedule', arguments: { calendar: 'mine' } });
+      const text = (answer.content as Array<{ text: string }>).map((c) => c.text).join('\n');
+      expect(text).toContain('Event of mine');
+      expect(text).not.toContain('Event of Perso');
+      await scoped.close();
+    } finally {
+      await named.close();
+    }
+  });
+
   it('names the empty group and how to list the calendars', async () => {
     const lonely = await startFakeDav(['Perso']);
     try {
