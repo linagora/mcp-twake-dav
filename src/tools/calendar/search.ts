@@ -9,7 +9,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Logger } from 'pino';
 import type { CalendarService } from '../../caldav/calendar-service.js';
 import {
-  getEventsWithRecurrenceExpansion,
+  expandEvents,
+  deduplicateEvents,
   formatEvent,
   parseNaturalDateRange,
   searchEventsByKeyword,
@@ -114,17 +115,21 @@ export function registerSearchEventsTool(
 
         // Transform and expand recurring events
         // Over the whole range: an occurrence moved after the cursor comes from before it.
-        let events = getEventsWithRecurrenceExpansion(rawEvents, timeRange, logger);
+        // filter first, then deduplicate: the copy that matches a query is not always the first one
+        let found = expandEvents(rawEvents, timeRange, logger);
 
         // Apply keyword filter if query provided
         if (params.query) {
-          events = searchEventsByKeyword(events, params.query);
+          found = searchEventsByKeyword(found, params.query);
         }
 
         // Apply attendee filter if attendee provided
         if (params.attendee) {
-          events = searchEventsByAttendee(events, params.attendee);
+          found = searchEventsByAttendee(found, params.attendee);
         }
+
+        // One entry per event, once the filters have chosen among its copies
+        let events = deduplicateEvents(found, logger);
 
         // Cut after the filters: a match can be anywhere in the window.
         const { page, nextCursor, more } = paginateEvents(events, params.limit, params.cursor);

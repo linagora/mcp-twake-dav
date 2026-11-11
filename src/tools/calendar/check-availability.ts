@@ -15,7 +15,7 @@ import type { CalendarService } from '../../caldav/calendar-service.js';
 import * as chrono from 'chrono-node';
 import {
   resolveCalendarEvents,
-  getEventsWithRecurrenceExpansion,
+  expandEvents,
   computeBusyPeriods,
   checkWindow,
   formatAllDaySpan,
@@ -142,7 +142,8 @@ export function registerCheckAvailabilityTool(
           return { content: [{ type: 'text' as const, text: windowProblem }], isError: true };
         }
         const rawEvents = await resolveCalendarEvents(calendarService, params.calendar, defaultCalendar, timeRange);
-        const events = getEventsWithRecurrenceExpansion(rawEvents, timeRange, logger);
+        // no deduplication here: each copy carries its own TRANSP, and the busy periods are merged anyway
+        const events = expandEvents(rawEvents, timeRange, logger).map((found) => found.event);
         // Anything not read could be what makes this time busy.
         if (hasPartialRead()) {
           return {

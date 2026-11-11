@@ -138,6 +138,35 @@ END:VCALENDAR`;
     expect(events).toHaveLength(1);
   });
 
+  it('deduplicates an occurrence stored alone with its RECURRENCE-ID', () => {
+    // an event object holding a single occurrence of a series, as an accepted invitation for one date
+    const alone = (url: string) =>
+      ({
+        url,
+        etag: `"${url}"`,
+        data: `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:alone@example.com
+DTSTAMP:20260101T000000Z
+RECURRENCE-ID:20261111T100000Z
+DTSTART:20261110T100000Z
+DTEND:20261110T110000Z
+SUMMARY:Comité (déplacé)
+END:VEVENT
+END:VCALENDAR`,
+      }) as DAVCalendarObject;
+
+    const events = getEventsWithRecurrenceExpansion(
+      [alone('https://dav.example.com/calendars/u1/mine/a.ics'), alone('https://dav.example.com/calendars/u1/team/a.ics')],
+      { start: '2026-11-09T00:00:00Z', end: '2026-11-12T00:00:00Z' },
+      logger
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0].summary).toBe('Comité (déplacé)');
+  });
+
   it('keeps the occurrences of a series apart', () => {
     const series = (url: string, uid: string) => ({
       url,

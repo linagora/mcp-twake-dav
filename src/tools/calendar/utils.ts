@@ -277,10 +277,10 @@ export function formatEvent(event: EventDTO, userTimezone?: string, allAttendees
  * @param keyword - Search keyword
  * @returns Filtered array of matching events
  */
-export function searchEventsByKeyword(events: EventDTO[], keyword: string): EventDTO[] {
+export function searchEventsByKeyword(found: FoundEvent[], keyword: string): FoundEvent[] {
   const lowerKeyword = keyword.toLowerCase();
 
-  return events.filter((event) => {
+  return found.filter(({ event }) => {
     const summaryMatch = event.summary.toLowerCase().includes(lowerKeyword);
     const descriptionMatch = event.description?.toLowerCase().includes(lowerKeyword) ?? false;
     return summaryMatch || descriptionMatch;
@@ -294,10 +294,10 @@ export function searchEventsByKeyword(events: EventDTO[], keyword: string): Even
  * @param name - Attendee name to search for
  * @returns Filtered array of events with matching attendee
  */
-export function searchEventsByAttendee(events: EventDTO[], name: string): EventDTO[] {
+export function searchEventsByAttendee(found: FoundEvent[], name: string): FoundEvent[] {
   const lowerName = name.toLowerCase();
 
-  return events.filter((event) => {
+  return found.filter(({ event }) => {
     return event.attendees.some((attendee) =>
       attendee.toLowerCase().includes(lowerName)
     );
@@ -332,6 +332,21 @@ export function getEventsWithRecurrenceExpansion(
   logger: Logger,
   options: { earliestOnly?: boolean } = {},
 ): EventDTO[] {
+  return deduplicateEvents(expandEvents(rawEvents, timeRange, logger, options), logger);
+}
+
+/**
+ * Expand the series and sort, keeping each event with the identity the deduplication uses
+ *
+ * For the tools that filter before showing anything (a search, a busy period): keeping one copy
+ * before the filter would drop an event whose other copy is the one that matches.
+ */
+export function expandEvents(
+  rawEvents: DAVCalendarObject[],
+  timeRange: TimeRange,
+  logger: Logger,
+  options: { earliestOnly?: boolean } = {},
+): FoundEvent[] {
   const startDate = new Date(timeRange.start);
   const endDate = new Date(timeRange.end);
   // each event with the identity the deduplication uses: the UID and the slot the series gives it,
@@ -465,20 +480,27 @@ export function getEventsWithRecurrenceExpansion(
     } else {
       // Non-recurring event: include if it overlaps the time range (a multi-day event started earlier counts)
       if ((eventDTO.endDate > startDate || eventDTO.startDate >= startDate) && eventDTO.startDate < endDate) {
-        found.push({ key: `${eventDTO.uid}|${eventDTO.startDate.toISOString()}`, event: eventDTO });
+        // an event stored alone with a RECURRENCE-ID is one occurrence of a series: its slot, not its
+        // (possibly moved) start, is what identifies it
+        found.push({ key: `${eventDTO.uid}|${recurrenceIdOf(eventDTO._raw) ?? eventDTO.startDate.toISOString()}`, event: eventDTO });
       }
     }
   }
 
-  return withoutDuplicates(found, logger).sort((a, b) =>
-    a.startDate.getTime() - b.startDate.getTime()
-    || a.uid.localeCompare(b.uid)
-    || a.url.localeCompare(b.url)
+  return found.sort((a, b) =>
+    a.event.startDate.getTime() - b.event.startDate.getTime()
+    || a.event.uid.localeCompare(b.event.uid)
+    || a.event.url.localeCompare(b.event.url)
   );
 }
 
+/** The RECURRENCE-ID of an event that carries one, as written */
+function recurrenceIdOf(ics: string | undefined): string | undefined {
+  return ics === undefined ? undefined : /^RECURRENCE-ID[^:\r\n]*:([^\r\n]+)/m.exec(ics)?.[1]?.trim();
+}
+
 /** An event with the identity the deduplication uses */
-interface FoundEvent {
+export interface FoundEvent {
   /** the UID and the slot the series gives the occurrence, which two copies agree on */
   key: string;
   event: EventDTO;
@@ -497,7 +519,7 @@ interface FoundEvent {
  * @param logger - Pino logger
  * @returns every event once, an occurrence at a time
  */
-function withoutDuplicates(found: FoundEvent[], logger: Logger): EventDTO[] {
+export function deduplicateEvents(found: FoundEvent[], logger: Logger): EventDTO[] {
   const unique = new Map<string, EventDTO>();
   for (const { key, event } of found) {
     if (!unique.has(key)) {
