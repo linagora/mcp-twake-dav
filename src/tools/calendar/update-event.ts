@@ -14,6 +14,7 @@ import { updateICalString, createExceptionVevent } from '../../transformers/even
 import * as chrono from 'chrono-node';
 import ICAL from 'ical.js';
 import { approverFor } from '../../approval.js';
+import { defaultCalendarText } from './utils.js';
 
 
 /** True when the event is a recurring series or an occurrence of one. */
@@ -48,7 +49,7 @@ export function registerUpdateEventTool(
       location: z.string().optional().describe('New event location'),
       calendar: z.string().optional().describe(
         'Calendar name to search in. Use "all" to search all calendars. ' +
-        (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to all calendars.')
+        defaultCalendarText(defaultCalendar) + ' A group name searches the calendars of that group.'
       ),
       instanceDate: z.string().optional().describe(
         'For recurring events only: the specific occurrence date to modify (e.g., "2026-02-05", "Tuesday"). ' +

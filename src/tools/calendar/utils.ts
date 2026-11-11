@@ -17,6 +17,7 @@ import { z } from 'zod';
 import type { Logger } from 'pino';
 import type { DAVCalendarObject } from 'tsdav';
 import type { CalendarService, TimeRange } from '../../caldav/calendar-service.js';
+import { CALENDAR_GROUPS, isCalendarGroup } from '../../caldav/access.js';
 import type { EventDTO, FreeBusyPeriod } from '../../types/dtos.js';
 import { addReadWarning, hasPartialRead } from '../../caldav/dav-fetch.js';
 import { transformCalendarObject } from '../../transformers/event.js';
@@ -597,13 +598,49 @@ export async function resolveCalendarEvents(
   // provides a different calendar name.  The LLM often sends "all" by default
   // which would bypass the user's configured filter — ignore "all" when a
   // default is set so only the user's own calendar is queried.
+  // a default calendar of "all" means no default at all
+  const configured = defaultCalendar?.trim().toLowerCase() === 'all' ? undefined : defaultCalendar;
   const target = calendarParam === 'all'
-    ? (defaultCalendar || undefined)
-    : (calendarParam || defaultCalendar);
-  if (target) {
-    return calendarService.fetchEventsByCalendarName(target, timeRange);
+    ? configured
+    : (calendarParam || configured);
+  const wanted = target?.trim();
+  if (wanted) {
+    // A group of access rights rather than one name: "mine", "writable", "read-only". A calendar
+    // that actually carries one of those names keeps it.
+    const access = isCalendarGroup(wanted) ? CALENDAR_GROUPS[wanted.toLowerCase()] : undefined;
+    if (access && !(await calendarService.hasCalendarNamed(wanted))) return calendarService.fetchEventsByAccess(access, timeRange);
+    return calendarService.fetchEventsByCalendarName(wanted, timeRange);
   }
   return calendarService.fetchAllEvents(timeRange);
+}
+
+/**
+ * Description of the `calendar` parameter, shared by the query tools
+ *
+ * @param defaultCalendar - DAV_DEFAULT_CALENDAR, when the user configured one
+ * @returns the description shown to the model
+ */
+export function calendarParamDescription(defaultCalendar?: string): string {
+  const groups =
+    'Also "mine" (the calendars you own), "writable" (every calendar you may write to, your own included), ' +
+    '"shared-write" (somebody else\'s calendars shared with write access) or "read-only" (where you may only read), ' +
+    (defaultCalendar ? 'or "all" for every calendar, unless a default calendar is set, which "all" then follows. ' : 'or "all" for every calendar. ') +
+    'A server that does not publish access rights answers a name or "all" only. ';
+  return 'Calendar name to search in. ' + groups + defaultCalendarText(defaultCalendar);
+}
+
+/**
+ * How a tool describes the calendar its configuration gives by default
+ *
+ * @param defaultCalendar - DAV_DEFAULT_CALENDAR, when the user configured one
+ * @returns the sentence shown to the model
+ */
+export function defaultCalendarText(defaultCalendar?: string): string {
+  if (!defaultCalendar) return 'Defaults to all calendars.';
+  // a group names several calendars: say so, rather than "Defaults to \"mine\""
+  return isCalendarGroup(defaultCalendar)
+    ? `Defaults to the calendars of the group "${defaultCalendar.trim()}".`
+    : `Defaults to "${defaultCalendar}".`;
 }
 
 /**
