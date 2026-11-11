@@ -452,28 +452,7 @@ export class CalendarService {
     iCalString: string,
     calendarName?: string
   ): Promise<{ url: string; etag: string | undefined }> {
-    // Resolve target calendar
-    await this.listCalendars();
-    let targetCalendar: DAVCalendar;
-
-    if (calendarName) {
-      const match = this.calendars.find(
-        (cal) => String(cal.displayName || '').toLowerCase() === calendarName.trim().toLowerCase()
-      );
-      if (!match) {
-        throw this.notFound(calendarName);
-      }
-      targetCalendar = match;
-    } else {
-      // No name: the first calendar the account may write to, its own before the ones shared with
-      // write access. A server that publishes no rights keeps the old behaviour (the first calendar).
-      const writable = [
-        ...this.calendars.filter((calendar) => this.calendarAccess(calendar) === 'mine'),
-        ...this.calendars.filter((calendar) => this.calendarAccess(calendar) === 'write'),
-      ];
-      targetCalendar = writable[0] ?? this.calendars[0];
-      this.logger.info({ calendar: targetCalendar.displayName, url: targetCalendar.url }, 'create_event: no calendar named, wrote into the first writable one');
-    }
+    const targetCalendar = await this.resolveCreateTarget(calendarName);
 
     // Generate filename
     const filename = `${randomUUID()}.ics`;
@@ -681,6 +660,35 @@ export class CalendarService {
 
     this.logger.debug({ uid }, 'Event not found by UID');
     return null;
+  }
+
+  /**
+   * The calendar create_event writes into: the named one, else the first the account may write to
+   *
+   * A server that publishes no access rights keeps the previous behaviour (the first calendar).
+   *
+   * @param calendarName - the calendar the user named, if any
+   * @throws Error when the name matches no calendar, or when no calendar may be written to
+   */
+  async resolveCreateTarget(calendarName?: string): Promise<DAVCalendar> {
+    await this.listCalendars();
+    if (calendarName) {
+      const match = this.calendars.find(
+        (cal) => String(cal.displayName || '').toLowerCase() === calendarName.trim().toLowerCase()
+      );
+      if (!match) throw this.notFound(calendarName);
+      return match;
+    }
+
+    const writable =
+      this.calendars.find((calendar) => this.calendarAccess(calendar) === 'mine') ??
+      this.calendars.find((calendar) => this.calendarAccess(calendar) === 'write');
+    if (writable) return writable;
+    // the rights are known, and none of them allows a write: say it now, not after the approval
+    if (this.calendars.some((calendar) => this.calendarAccess(calendar) !== undefined)) {
+      throw new Error('No calendar you may write to was found, so an event cannot be created.\n\nFix: Use list_calendars to see the calendars and their access.');
+    }
+    return this.calendars[0];
   }
 
   /**

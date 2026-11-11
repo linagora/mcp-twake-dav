@@ -34,6 +34,7 @@ function setup(opts: { answer?: 'accept' | 'decline' | 'cancel'; elicitation?: b
   const calendarService = {
     listCalendars: async () => [],
     findEventByUid: async () => event,
+    resolveCreateTarget: async () => ({ displayName: 'Perso', url: 'https://dav.example.com/cal/' }),
     createEvent: async () => (writes.push('createEvent'), { url: 'https://dav.example.com/cal/new.ics', etag: '"n"' }),
     updateEvent: async () => (writes.push('updateEvent'), { url: event.url, etag: '"3"' }),
     deleteEvent: async () => void writes.push('deleteEvent'),

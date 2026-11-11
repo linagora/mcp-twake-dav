@@ -49,7 +49,7 @@ export function registerCreateEventTool(
           ? isCalendarGroup(defaultCalendar)
             ? 'A group of calendars cannot hold a new event: name the calendar.'
             : defaultCalendarText(defaultCalendar)
-          : 'Defaults to first calendar.')
+          : 'Defaults to the first calendar you may write to.')
       ),
       allDay: z.boolean().optional().describe('If true, creates an all-day event (DATE format instead of DATE-TIME)'),
       recurrence: z.string().optional().describe('RRULE recurrence string (e.g., "FREQ=WEEKLY;BYDAY=MO", "FREQ=DAILY;COUNT=5")'),
@@ -156,6 +156,19 @@ export function registerCreateEventTool(
           };
         }
 
+        // The calendar the event will really go to: resolving it now names it in the approval, and
+        // refuses before it when the account has none it may write to
+        let destination: string | undefined;
+        try {
+          const chosen = await calendarService.resolveCreateTarget(resolvedCalendar);
+          destination = typeof chosen.displayName === 'string' ? chosen.displayName : chosen.url;
+        } catch (error) {
+          return {
+            content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }],
+            isError: true,
+          };
+        }
+
         // Build iCalendar string with timezone
         const iCalString = buildICalString({
           title: params.title,
@@ -173,7 +186,7 @@ export function registerCreateEventTool(
         const refused = await approverFor(server).gate({
           action: 'create_event',
           details: [
-            ['calendar', resolvedCalendar],
+            ['calendar', destination],
             ['title', params.title],
             ['when', approverFor(server).span(startDate, endDate, Boolean(params.allDay))],
             ['location', params.location],
@@ -190,7 +203,7 @@ export function registerCreateEventTool(
         const displayTimezone = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
         const tzOptions: Intl.DateTimeFormatOptions = { timeZone: displayTimezone };
 
-        const calendarText = resolvedCalendar ? ` in calendar "${resolvedCalendar}"` : '';
+        const calendarText = destination ? ` in calendar "${destination}"` : '';
         const locationText = params.location ? `\nLocation: ${params.location}` : '';
         const descriptionText = params.description ? `\nDescription: ${params.description}` : '';
         const recurrenceText = params.recurrence ? `\nRecurrence: ${params.recurrence}` : '';
