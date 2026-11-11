@@ -13,6 +13,7 @@ import { ConflictError } from '../../errors.js';
 import { addAlarmToEvent } from '../../transformers/event-builder.js';
 import { approverFor } from '../../approval.js';
 import { defaultCalendarText } from './utils.js';
+import { isAllCalendars } from '../../caldav/access.js';
 
 /**
  * Register the add_alarm tool
@@ -49,7 +50,7 @@ export function registerAddAlarmTool(
         logger.debug({ params }, 'add_alarm called');
 
         // Resolve target calendar
-        const resolvedCalendar = params.calendar === 'all'
+        const resolvedCalendar = isAllCalendars(params.calendar)
           ? undefined
           : (params.calendar || defaultCalendar || undefined);
 

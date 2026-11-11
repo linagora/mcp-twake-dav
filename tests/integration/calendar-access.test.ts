@@ -341,6 +341,29 @@ describe('calendar access rights', () => {
     }
   });
 
+  it('reads "all" the same way in every tool, whatever the case', async () => {
+    for (const name of ['all', 'ALL', ' All ']) {
+      dav.requests.length = 0;
+      const text = await call('get_todays_schedule', { calendar: name });
+      expect(text, name).toContain('Event of Perso');
+      expect(text, name).toContain('Event of Team');
+      expect(text, name).not.toContain('not found');
+    }
+  });
+
+  it('follows the default calendar in respond_to_invitation, like list_invitations', async () => {
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_DEFAULT_CALENDAR: 'mine', DAV_ORGANIZER_EMAIL: 'u@example.com' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+
+    dav.requests.length = 0;
+    await service.findInvitation('a').catch(() => null);
+    const queried = dav.requests.filter((request) => request.method === 'REPORT').map((request) => request.url);
+    // "mine" holds Perso only: the colleague's calendars are not asked
+    expect(queried.length).toBeGreaterThan(0);
+    expect(queried.every((url) => !url.includes('/Shared/') && !url.includes('/Team/'))).toBe(true);
+  });
+
   it('does not take an odd calendar name for a group', async () => {
     // "constructor" and "__proto__" are properties of every object: they must be read as calendar names
     for (const name of ['constructor', '__proto__']) {

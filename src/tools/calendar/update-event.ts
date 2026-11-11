@@ -15,6 +15,7 @@ import * as chrono from 'chrono-node';
 import ICAL from 'ical.js';
 import { approverFor } from '../../approval.js';
 import { defaultCalendarText } from './utils.js';
+import { isAllCalendars } from '../../caldav/access.js';
 
 
 /** True when the event is a recurring series or an occurrence of one. */
@@ -86,7 +87,7 @@ export function registerUpdateEventTool(
         }
 
         // Resolve target calendar
-        const resolvedCalendar = params.calendar === 'all'
+        const resolvedCalendar = isAllCalendars(params.calendar)
           ? undefined
           : (params.calendar || defaultCalendar || undefined);
 

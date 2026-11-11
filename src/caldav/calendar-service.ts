@@ -15,7 +15,7 @@ import type { Config } from '../config/schema.js';
 import { CollectionCache } from './cache.js';
 import { withRetry } from './retry.js';
 import { discoverCalendars, discoverSchedulingInbox } from './discovery.js';
-import { CALENDAR_GROUPS, calendarKey, discoverCalendarAccess, isCalendarGroup, type CalendarAccess, type CalendarSharing } from './access.js';
+import { CALENDAR_GROUPS, calendarKey, discoverCalendarAccess, isAllCalendars, isCalendarGroup, type CalendarAccess, type CalendarSharing } from './access.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictError, DavHttpError, isDavUnsupported } from '../errors.js';
 import { addReadWarning, hasPartialRead } from './dav-fetch.js';
@@ -327,7 +327,7 @@ export class CalendarService {
    */
   private calendarsFor(name: string | undefined): DAVCalendar[] {
     const wanted = name?.trim();
-    if (!wanted || wanted.toLowerCase() === 'all') return this.calendars;
+    if (!wanted || isAllCalendars(wanted)) return this.calendars;
     // a calendar that really carries the name keeps it, as in the query tools
     const named = this.calendars.filter((calendar) => String(calendar.displayName || '').toLowerCase() === wanted.toLowerCase());
     if (named.length > 0 || !isCalendarGroup(wanted)) return named;
@@ -739,7 +739,7 @@ export class CalendarService {
     const range = timeRange ?? { start: new Date().toISOString(), end: new Date(Date.now() + 30 * 86400000).toISOString() };
     await this.listCalendars();
     // "all" means every calendar; a name and a group are resolved by calendarsFor()
-    const wanted = calendarName === 'all' ? undefined : calendarName ?? this.config.DAV_DEFAULT_CALENDAR?.trim();
+    const wanted = isAllCalendars(calendarName) ? undefined : calendarName ?? this.config.DAV_DEFAULT_CALENDAR?.trim();
     const targets = this.calendarsFor(wanted);
     if (wanted && targets.length === 0) throw this.noCalendarFor(wanted);
     const icalTime = (iso: string) => `${new Date(iso).toISOString().slice(0, 19).replace(/[-:.]/g, '')}Z`;
@@ -784,7 +784,8 @@ export class CalendarService {
    */
   async findInvitation(uid: string, calendarName?: string): Promise<InvitationDTO | null> {
     const email = this.attendeeEmail();
-    const event = await this.findEventByUid(uid, calendarName === 'all' ? undefined : calendarName);
+    // "all", a name and a group read the same way as in list_invitations, default calendar included
+    const event = await this.findEventByUid(uid, isAllCalendars(calendarName) ? undefined : calendarName ?? this.config.DAV_DEFAULT_CALENDAR?.trim());
     if (!event?._raw || !event.url) return null;
     const invitation = transformInvitation({ href: event.url, props: { getetag: event.etag, calendarData: event._raw } }, email, this.logger);
     return invitation && invitation.isAttendee ? invitation : null;

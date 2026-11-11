@@ -13,7 +13,7 @@ import { buildICalString } from '../../transformers/event-builder.js';
 import * as chrono from 'chrono-node';
 import { approverFor } from '../../approval.js';
 import { defaultCalendarText } from './utils.js';
-import { isCalendarGroup } from '../../caldav/access.js';
+import { isAllCalendars, isCalendarGroup } from '../../caldav/access.js';
 
 /**
  * Register the create_event tool
@@ -133,7 +133,7 @@ export function registerCreateEventTool(
         // that really carries one of those names keeps it.
         const resolvedCalendar = params.calendar || defaultCalendar;
         const target = resolvedCalendar?.trim();
-        if (target?.toLowerCase() === 'all') {
+        if (isAllCalendars(target)) {
           return {
             content: [
               {

@@ -17,7 +17,7 @@ import { z } from 'zod';
 import type { Logger } from 'pino';
 import type { DAVCalendarObject } from 'tsdav';
 import type { CalendarService, TimeRange } from '../../caldav/calendar-service.js';
-import { CALENDAR_GROUPS, isCalendarGroup } from '../../caldav/access.js';
+import { CALENDAR_GROUPS, isAllCalendars, isCalendarGroup } from '../../caldav/access.js';
 import type { EventDTO, FreeBusyPeriod } from '../../types/dtos.js';
 import { addReadWarning, hasPartialRead } from '../../caldav/dav-fetch.js';
 import { transformCalendarObject } from '../../transformers/event.js';
@@ -599,8 +599,8 @@ export async function resolveCalendarEvents(
   // which would bypass the user's configured filter — ignore "all" when a
   // default is set so only the user's own calendar is queried.
   // a default calendar of "all" means no default at all
-  const configured = defaultCalendar?.trim().toLowerCase() === 'all' ? undefined : defaultCalendar;
-  const target = calendarParam === 'all'
+  const configured = isAllCalendars(defaultCalendar) ? undefined : defaultCalendar;
+  const target = isAllCalendars(calendarParam)
     ? configured
     : (calendarParam || configured);
   const wanted = target?.trim();

@@ -203,3 +203,13 @@ export const CALENDAR_GROUPS: Record<string, CalendarAccess[]> = {
 export function isCalendarGroup(name: string): boolean {
   return Object.hasOwn(CALENDAR_GROUPS, name.trim().toLowerCase());
 }
+
+/**
+ * Whether a name asks for every calendar
+ *
+ * @param name - what the model or the configuration gave as a calendar
+ * @returns true for "all", whatever the case and spaces, which every tool must read the same way
+ */
+export function isAllCalendars(name: string | undefined): boolean {
+  return name?.trim().toLowerCase() === 'all';
+}

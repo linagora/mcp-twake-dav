@@ -14,6 +14,7 @@ import { removeAlarmFromEvent, removeAllAlarmsFromEvent } from '../../transforme
 import ICAL from 'ical.js';
 import { approverFor } from '../../approval.js';
 import { defaultCalendarText } from './utils.js';
+import { isAllCalendars } from '../../caldav/access.js';
 
 /**
  * Register the remove_alarm tool
@@ -50,7 +51,7 @@ export function registerRemoveAlarmTool(
         logger.debug({ params }, 'remove_alarm called');
 
         // Resolve target calendar
-        const resolvedCalendar = params.calendar === 'all'
+        const resolvedCalendar = isAllCalendars(params.calendar)
           ? undefined
           : (params.calendar || defaultCalendar || undefined);
 
