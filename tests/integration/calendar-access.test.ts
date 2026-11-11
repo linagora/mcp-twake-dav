@@ -299,6 +299,24 @@ describe('calendar access rights', () => {
     }
   });
 
+  it('refuses to create an event in a group before asking for approval', async () => {
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+    const server = createServer(service, new AddressBookService(clients.carddav, logger), logger, 'mine');
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+    await scoped.connect(clientTransport);
+
+    const answer = await scoped.callTool({ name: 'create_event', arguments: { title: 'Point', start: '2026-11-12T10:00:00', end: '2026-11-12T11:00:00' } });
+    const text = (answer.content as Array<{ text: string }>).map((content) => content.text).join('\n');
+    expect(text).toContain('"mine" is a group of calendars');
+    // nothing was written, and no approval was asked
+    expect(dav.requests.filter((request) => request.method === 'PUT')).toHaveLength(0);
+    await scoped.close();
+  });
+
   it('does not take an odd calendar name for a group', async () => {
     // "constructor" and "__proto__" are properties of every object: they must be read as calendar names
     for (const name of ['constructor', '__proto__']) {

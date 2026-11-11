@@ -125,8 +125,7 @@ export function classifyAccess(
  * @param client - CalDAV client instance
  * @param calendars - calendars discovered by tsdav
  * @param logger - Pino logger
- * @returns access rights per calendar, under the key of calendarKey(url) and of name:<display name>
- *   (the name only when it is unambiguous)
+ * @returns access rights per calendar, under the key of calendarKey(url)
  * @throws whatever the PROPFIND throws, so that the caller can retry it
  */
 export async function discoverCalendarAccess(
@@ -169,13 +168,6 @@ export async function discoverCalendarAccess(
     // some servers give the principal of the account with the client, not with the calendar home
     (client as { account?: { principalUrl?: string } }).account?.principalUrl;
 
-  // two calendars of the same name are only reachable by URL
-  const names = new Map<string, number>();
-  for (const response of responses) {
-    const name = response.props?.displayname;
-    if (typeof name === 'string' && name) names.set(name.toLowerCase(), (names.get(name.toLowerCase()) ?? 0) + 1);
-  }
-
   // the home itself, the inbox and the outbox answer the same properties: only the calendars count
   const discovered = new Set(calendars.map((calendar) => calendarKey(calendar.url)));
 
@@ -186,8 +178,6 @@ export async function discoverCalendarAccess(
     const owner = (response.props?.owner as { href?: string } | undefined)?.href;
     const entry: CalendarSharing = { access: classifyAccess(owner, principal, privileges, shareAccess(response.props)), ...(owner ? { owner } : {}) };
     sharing.set(calendarKey(response.href), entry);
-    const name = response.props?.displayname;
-    if (typeof name === 'string' && name && names.get(name.toLowerCase()) === 1) sharing.set(`name:${name.toLowerCase()}`, entry);
   }
 
   logger.info({ count: sharing.size, homes }, 'Discovered calendar access rights');

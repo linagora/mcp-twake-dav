@@ -180,8 +180,8 @@ export class CalendarService {
    * @returns its group and owner, or undefined on a server without ACL support
    */
   sharingOf(calendar: DAVCalendar): CalendarSharing | undefined {
-    const name = String(calendar.displayName || '').toLowerCase();
-    return this.sharing.get(calendarKey(calendar.url)) ?? (name ? this.sharing.get(`name:${name}`) : undefined);
+    // the URL only: a name can be shared by two calendars, and would lend one the rights of the other
+    return this.sharing.get(calendarKey(calendar.url));
   }
 
   /**
@@ -352,8 +352,6 @@ export class CalendarService {
       .join(' or ');
     return new Error(`No calendar with ${described} was found.\n\nFix: Use list_calendars to see the calendars and their access.`);
   }
-
-
 
   /**
    * The error for a name that matches no calendar, saying why when it is a group of access rights

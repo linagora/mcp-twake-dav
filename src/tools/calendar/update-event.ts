@@ -49,7 +49,7 @@ export function registerUpdateEventTool(
       location: z.string().optional().describe('New event location'),
       calendar: z.string().optional().describe(
         'Calendar name to search in. Use "all" to search all calendars. ' +
-        defaultCalendarText(defaultCalendar)
+        defaultCalendarText(defaultCalendar) + ' A group name searches the calendars of that group.'
       ),
       instanceDate: z.string().optional().describe(
         'For recurring events only: the specific occurrence date to modify (e.g., "2026-02-05", "Tuesday"). ' +

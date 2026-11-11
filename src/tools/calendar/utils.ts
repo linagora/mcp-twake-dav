@@ -624,7 +624,8 @@ export function calendarParamDescription(defaultCalendar?: string): string {
   const groups =
     'Also "mine" (the calendars you own), "writable" (every calendar you may write to, your own included), ' +
     '"shared-write" (somebody else\'s calendars shared with write access) or "read-only" (where you may only read), ' +
-    'or "all" for every calendar. A server that does not publish access rights answers a name or "all" only. ';
+    (defaultCalendar ? 'or "all" for every calendar, unless a default calendar is set, which "all" then follows. ' : 'or "all" for every calendar. ') +
+    'A server that does not publish access rights answers a name or "all" only. ';
   return 'Calendar name to search in. ' + groups + defaultCalendarText(defaultCalendar);
 }
 

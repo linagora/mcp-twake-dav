@@ -13,6 +13,7 @@ import { buildICalString } from '../../transformers/event-builder.js';
 import * as chrono from 'chrono-node';
 import { approverFor } from '../../approval.js';
 import { defaultCalendarText } from './utils.js';
+import { isCalendarGroup } from '../../caldav/access.js';
 
 /**
  * Register the create_event tool
@@ -123,8 +124,21 @@ export function registerCreateEventTool(
           };
         }
 
-        // Resolve target calendar
+        // Resolve target calendar. A group, or "all", names no calendar: say so before asking for
+        // approval, rather than failing once the user has accepted the write.
         const resolvedCalendar = params.calendar || defaultCalendar;
+        const target = resolvedCalendar?.trim();
+        if (target && (target.toLowerCase() === 'all' || isCalendarGroup(target))) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `"${target}" is a group of calendars, not a calendar: name the calendar to create the event in.\n\nFix: Use list_calendars to see the calendars.`,
+              },
+            ],
+            isError: true,
+          };
+        }
 
         // Build iCalendar string with timezone
         const iCalString = buildICalString({

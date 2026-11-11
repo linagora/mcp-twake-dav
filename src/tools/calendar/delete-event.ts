@@ -50,7 +50,7 @@ export function registerDeleteEventTool(
       ),
       calendar: z.string().optional().describe(
         'Calendar name to search in. Use "all" to search all calendars. ' +
-        defaultCalendarText(defaultCalendar)
+        defaultCalendarText(defaultCalendar) + ' A group name searches the calendars of that group.'
       ),
     },
     {

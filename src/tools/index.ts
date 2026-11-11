@@ -194,7 +194,7 @@ export function registerAllTools(
           if (groups.write.length > 0) sections.push(`Shared with write access (${groups.write.length}):\n\n${render(groups.write)}`);
           if (groups.read.length > 0) sections.push(`Read-only (${groups.read.length}):\n\n${render(groups.read)}`);
           if (unknown.length > 0) sections.push(`Access rights unknown (${unknown.length}):\n\n${render(unknown)}`);
-          sections.push('Use calendar: "mine", "writable" (yours and the ones shared with write access), "shared-write" or "read-only" to query one group, "all" for every calendar.');
+          sections.push('Use calendar: "mine", "writable" (yours and the ones shared with write access), "shared-write" or "read-only" to query one group, "all" for every calendar (or for the default calendar, when one is set).');
         }
 
         const result = sections.join('\n\n');
