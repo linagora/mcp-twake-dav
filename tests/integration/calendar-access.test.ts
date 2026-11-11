@@ -317,6 +317,51 @@ describe('calendar access rights', () => {
     }
   });
 
+  it('writes into the calendar it approved when two share its name', async () => {
+    // a colleague's "Agenda" shared with write access comes first, the user's own "Agenda" second
+    const same = await startFakeDav(['Agenda', 'Other'], { sharedWithWrite: ['Agenda'], readOnly: ['Other'] });
+    same.handler = (req) => (req.method === 'PUT' ? { status: 201, headers: { etag: '"1"' } } : null);
+    // the second "Agenda" is the user's own: same display name, another URL
+    const original = same.handler;
+    same.handler = (req) => {
+      const reply = original(req, undefined as never);
+      return reply;
+    };
+    try {
+      const config = { DAV_URL: same.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_APPROVAL: 'client' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+      // give the second calendar the same name as the first, after discovery
+      const calendars = await service.listCalendars();
+      calendars[1] = { ...calendars[1], displayName: 'Agenda' };
+      const own = calendars[1];
+
+      await service.createEvent('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n', undefined, own);
+      const put = same.requests.filter((request) => request.method === 'PUT');
+      expect(put).toHaveLength(1);
+      expect(put[0].url).toContain(own.url.replace(same.url, '/'));
+    } finally {
+      await same.close();
+    }
+  });
+
+  it('refuses a calendar named by hand and known to be read-only, before asking for approval', async () => {
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_APPROVAL: 'client' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+    const server = createServer(service, new AddressBookService(clients.carddav, logger), logger, undefined, undefined, undefined, { DAV_APPROVAL: 'client' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+    await scoped.connect(clientTransport);
+
+    const answer = await scoped.callTool({ name: 'create_event', arguments: { title: 'Point', start: '2026-11-12T10:00:00', end: '2026-11-12T11:00:00', calendar: 'Shared' } });
+    const text = (answer.content as Array<{ text: string }>).map((content) => content.text).join('\n');
+    expect(text).toContain('is read-only');
+    expect(dav.requests.filter((request) => request.method === 'PUT')).toHaveLength(0);
+    await scoped.close();
+  });
+
   it('writes into a calendar whose rights are unknown when the others are read-only', async () => {
     // one home refuses to give its rights: its calendar was never checked, and is the only chance
     const partial = await startFakeDav(['Shared', 'Mine'], { readOnly: ['Shared'] });

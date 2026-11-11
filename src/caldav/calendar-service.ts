@@ -444,15 +444,18 @@ export class CalendarService {
    *
    * @param iCalString - Complete iCalendar string to create
    * @param calendarName - Optional calendar display name (case-insensitive); without it, the first calendar the account may write to (see resolveCreateTarget())
+   * @param resolved - The calendar to write into, when the caller already resolved it (two calendars may share a name)
    * @returns Object with url and etag of the created event
    * @throws ConflictError if 412 response (event with this UID already exists)
    * @throws Error if calendar not found or creation fails
    */
   async createEvent(
     iCalString: string,
-    calendarName?: string
+    calendarName?: string,
+    resolved?: DAVCalendar
   ): Promise<{ url: string; etag: string | undefined }> {
-    const targetCalendar = await this.resolveCreateTarget(calendarName);
+    // a calendar already resolved by the caller: the one the user approved, whatever its name
+    const targetCalendar = resolved ?? (await this.resolveCreateTarget(calendarName));
 
     // Generate filename
     const filename = `${randomUUID()}.ics`;

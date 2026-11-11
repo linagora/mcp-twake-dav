@@ -159,8 +159,10 @@ export function registerCreateEventTool(
         // The calendar the event will really go to: resolving it now names it in the approval, refuses
         // before it when the account has none it may write to, and is the one the write uses
         let destination: string | undefined;
+        let chosenCalendar: Awaited<ReturnType<typeof calendarService.resolveCreateTarget>> | undefined;
         try {
           const chosen = await calendarService.resolveCreateTarget(resolvedCalendar);
+          chosenCalendar = chosen;
           destination = typeof chosen.displayName === 'string' ? chosen.displayName : chosen.url;
           // a calendar named by hand and known to be read-only: say it now, not after the approval
           if (params.calendar && calendarService.calendarAccess(chosen) === 'read') {
@@ -204,7 +206,8 @@ export function registerCreateEventTool(
         });
         if (refused) return refused;
         // Create event
-        const result = await calendarService.createEvent(iCalString, destination ?? resolvedCalendar);
+        // the calendar itself: two calendars may share a name, and the user approved this one
+        const result = await calendarService.createEvent(iCalString, resolvedCalendar, chosenCalendar);
 
         // Format success response with user timezone
         const displayTimezone = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
