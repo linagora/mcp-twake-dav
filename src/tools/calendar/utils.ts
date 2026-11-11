@@ -318,6 +318,7 @@ const MAX_OCCURRENCES_PER_SERIES = 10_000;
  * 2. For recurring events: parse _raw iCalendar and expand with Phase 2 recurrence expander
  * 3. For non-recurring events: filter by time range
  * 4. Sort by startDate, then UID and URL so that pages stay stable
+ * 5. Keep one entry per event, when several calendars hold the same one
  *
  * @param rawEvents - Array of DAVCalendarObject from CalendarService
  * @param timeRange - ISO 8601 time range for filtering/expansion
@@ -333,11 +334,10 @@ export function getEventsWithRecurrenceExpansion(
 ): EventDTO[] {
   const startDate = new Date(timeRange.start);
   const endDate = new Date(timeRange.end);
-  const allEvents: EventDTO[] = [];
-  // the identity of each event for the deduplication: the UID and the slot the series gives it, which
-  // two calendars sharing it agree on, and which tells two occurrences of a series apart even when one
-  // was moved onto the other's time
-  const keys: string[] = [];
+  // each event with the identity the deduplication uses: the UID and the slot the series gives it,
+  // which two calendars sharing the event agree on, and which tells two occurrences of a series apart
+  // even when one was moved onto the other's time. Kept together so that a new push cannot break them.
+  const found: FoundEvent[] = [];
 
   for (const rawEvent of rawEvents) {
     // Transform to EventDTO
@@ -426,27 +426,31 @@ export function getEventsWithRecurrenceExpansion(
             // For non-cancelled exceptions, use the exception's dates and summary
             const exceptionEvent = details.item;
             if (!overlaps(details.startDate.toJSDate(), details.endDate.toJSDate())) continue;
-            keys.push(`${eventDTO.uid}|${occurrenceDate.toISOString()}`);
-            allEvents.push({
-              ...eventDTO,
-              summary: exceptionEvent.summary || eventDTO.summary,
-              description: exceptionEvent.description || eventDTO.description,
-              location: exceptionEvent.location || eventDTO.location,
-              startDate: details.startDate.toJSDate(),
-              endDate: details.endDate.toJSDate(),
-              status: exceptionStatus ? String(exceptionStatus).toUpperCase() : eventDTO.status,
+            found.push({
+              key: `${eventDTO.uid}|${occurrenceDate.toISOString()}`,
+              event: {
+                ...eventDTO,
+                summary: exceptionEvent.summary || eventDTO.summary,
+                description: exceptionEvent.description || eventDTO.description,
+                location: exceptionEvent.location || eventDTO.location,
+                startDate: details.startDate.toJSDate(),
+                endDate: details.endDate.toJSDate(),
+                status: exceptionStatus ? String(exceptionStatus).toUpperCase() : eventDTO.status,
+              },
             });
           } else {
             // Normal occurrence (no exception)
             const occurrenceEnd = occurrenceEndOf(occurrenceDate);
             if (!overlaps(occurrenceDate, occurrenceEnd)) continue;
 
-            keys.push(`${eventDTO.uid}|${occurrenceDate.toISOString()}`);
-            allEvents.push({
-              ...eventDTO,
-              startDate: occurrenceDate,
-              endDate: occurrenceEnd,
-              // Keep other fields (summary, location, attendees, etc.) from original
+            found.push({
+              key: `${eventDTO.uid}|${occurrenceDate.toISOString()}`,
+              event: {
+                ...eventDTO,
+                startDate: occurrenceDate,
+                endDate: occurrenceEnd,
+                // Keep other fields (summary, location, attendees, etc.) from original
+              },
             });
           }
         }
@@ -461,18 +465,23 @@ export function getEventsWithRecurrenceExpansion(
     } else {
       // Non-recurring event: include if it overlaps the time range (a multi-day event started earlier counts)
       if ((eventDTO.endDate > startDate || eventDTO.startDate >= startDate) && eventDTO.startDate < endDate) {
-        keys.push(`${eventDTO.uid}|${eventDTO.startDate.toISOString()}`);
-        allEvents.push(eventDTO);
+        found.push({ key: `${eventDTO.uid}|${eventDTO.startDate.toISOString()}`, event: eventDTO });
       }
     }
   }
 
-  // deduplicate before sorting: the keys are in the order of allEvents, which the sort changes
-  return withoutDuplicates(allEvents, keys, logger).sort((a, b) =>
+  return withoutDuplicates(found, logger).sort((a, b) =>
     a.startDate.getTime() - b.startDate.getTime()
     || a.uid.localeCompare(b.uid)
     || a.url.localeCompare(b.url)
   );
+}
+
+/** An event with the identity the deduplication uses */
+interface FoundEvent {
+  /** the UID and the slot the series gives the occurrence, which two copies agree on */
+  key: string;
+  event: EventDTO;
 }
 
 /**
@@ -484,22 +493,19 @@ export function getEventsWithRecurrenceExpansion(
  * server's calendar order is the one kept: the copies may disagree on the attendees, and none of them
  * is more right than another without a rule the user chose.
  *
- * @param events - the events of every calendar, in the order the expansion pushed them
- * @param keys - their deduplication keys, in the same order: the UID and the slot the series gives
- *   the occurrence, which two copies agree on and which tells two occurrences of a series apart
+ * @param found - the events, each with its key, in the order the expansion pushed them
  * @param logger - Pino logger
  * @returns every event once, an occurrence at a time
  */
-function withoutDuplicates(events: EventDTO[], keys: string[], logger: Logger): EventDTO[] {
+function withoutDuplicates(found: FoundEvent[], logger: Logger): EventDTO[] {
   const unique = new Map<string, EventDTO>();
-  events.forEach((event, index) => {
-    const key = keys[index];
+  for (const { key, event } of found) {
     if (!unique.has(key)) {
       unique.set(key, event);
-      return;
+      continue;
     }
     logger.debug({ uid: event.uid, date: event.startDate.toISOString(), url: event.url }, 'Skipping an event another calendar already lists');
-  });
+  }
   return [...unique.values()];
 }
 
