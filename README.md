@@ -305,7 +305,7 @@ Event descriptions and contact notes may be written by third parties (prompt inj
 | `401 Unauthorized` | Check the credentials; with a token, check that it is valid and not expired. |
 | `URL must use HTTPS` | Use `https://` (HTTP is only accepted for `localhost` / `127.0.0.1`). |
 | `cannot find homeUrl` / empty calendars | The server sits behind a path prefix: set `DAV_HREF_PREFIX` (e.g. `/dav`). |
-| `Event not found` on update or delete | Pass the calendar name. `calendar: "all"` follows `DAV_DEFAULT_CALENDAR` when one is set, so it reads the same calendars. |
+| `Event not found` on update or delete | Pass the calendar name. `calendar: "all"` follows `DAV_DEFAULT_CALENDAR` when one is set, so naming it does not widen the search. |
 | No calendars or address books | Check the account's permissions in the server's web interface. |
 | Tools missing in the client | Restart the client after editing its configuration; check that `npx` is in the `PATH`. |
 

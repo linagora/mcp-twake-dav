@@ -345,7 +345,7 @@ export class CalendarService {
    */
   private noAccessCalendars(groups: CalendarAccess[]): Error {
     if (this.calendars.every((calendar) => this.calendarAccess(calendar) === undefined)) {
-      return new Error('This calendar server does not publish the access rights of its calendars, so a group cannot be queried.\n\nFix: Use list_calendars, then name a calendar or use "all".');
+      return new Error('This calendar server does not publish the access rights of its calendars, so a group cannot be queried.\n\nFix: Use list_calendars, then name a calendar.');
     }
     const described = groups
       .map((group) => (group === 'mine' ? 'you as owner' : group === 'write' ? 'write access shared by somebody else' : 'read-only access'))
