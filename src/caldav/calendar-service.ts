@@ -15,6 +15,7 @@ import type { Config } from '../config/schema.js';
 import { CollectionCache } from './cache.js';
 import { withRetry } from './retry.js';
 import { discoverCalendars, discoverSchedulingInbox } from './discovery.js';
+import { calendarKey, discoverCalendarAccess, type CalendarAccess, type CalendarSharing } from './access.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictError, DavHttpError, isDavUnsupported } from '../errors.js';
 import { addReadWarning, hasPartialRead } from './dav-fetch.js';
@@ -55,6 +56,8 @@ export class CalendarService {
   private readonly config: Config;
   private readonly objectCache: CollectionCache<DAVCalendarObject>;
   private calendars: DAVCalendar[] = [];
+  private sharing = new Map<string, CalendarSharing>();
+  private sharingLoaded = false;
   private schedulingInboxUrl: string | null | undefined = undefined;
 
   /**
@@ -118,6 +121,8 @@ export class CalendarService {
       this.logger
     );
 
+    await this.loadSharing();
+
     return this.calendars;
   }
 
@@ -139,10 +144,78 @@ export class CalendarService {
       this.logger
     );
 
+    this.sharing = new Map();
+    this.sharingLoaded = false;
+    await this.loadSharing();
+
     // Clear object cache since calendars may have changed
     this.objectCache.clear();
 
     return this.calendars;
+  }
+
+  /**
+   * Read the access rights of the calendars once (RFC 3744), and keep them
+   */
+  private async loadSharing(): Promise<void> {
+    if (this.sharingLoaded) return;
+    this.sharingLoaded = true;
+    this.sharing = await discoverCalendarAccess(this.client, this.calendars, this.logger);
+  }
+
+  /**
+   * Access rights of a calendar, when the server tells them
+   *
+   * @param calendar - a calendar from listCalendars()
+   * @returns its group and owner, or undefined on a server without ACL support
+   */
+  sharingOf(calendar: DAVCalendar): CalendarSharing | undefined {
+    const name = String(calendar.displayName || '').toLowerCase();
+    return this.sharing.get(calendarKey(calendar.url)) ?? (name ? this.sharing.get(`name:${name}`) : undefined);
+  }
+
+  /**
+   * Group of a calendar: "mine", shared "write", or "read" only
+   *
+   * @param calendar - a calendar from listCalendars()
+   * @returns the group, or undefined when the server does not tell
+   */
+  calendarAccess(calendar: DAVCalendar): CalendarAccess | undefined {
+    return this.sharingOf(calendar)?.access;
+  }
+
+  /**
+   * Fetch events from the calendars of one or several access groups
+   *
+   * @param access - "mine", "write" (somebody else's calendar shared with write
+   *   access) or "read" (shared read-only), alone or together
+   * @param timeRange - Optional ISO 8601 time range for server-side filtering
+   * @returns Flattened array of DAVCalendarObject from every calendar of the groups
+   * @throws Error if no calendar is in these groups, or if a fetch fails
+   */
+  async fetchEventsByAccess(access: CalendarAccess | CalendarAccess[], timeRange?: TimeRange): Promise<DAVCalendarObject[]> {
+    await this.listCalendars();
+
+    const groups = Array.isArray(access) ? access : [access];
+    const targets = this.calendars.filter((calendar) => {
+      const own = this.calendarAccess(calendar);
+      return own !== undefined && groups.includes(own);
+    });
+    if (targets.length === 0) {
+      const described = groups
+        .map((group) => (group === 'mine' ? 'you as owner' : group === 'write' ? 'write access shared by somebody else' : 'read-only access'))
+        .join(' or ');
+      throw new Error(`No calendar with ${described} was found.\n\nFix: Use list_calendars to see the calendars and their access.`);
+    }
+
+    const objects = await this.fetchEventsFrom(targets, timeRange);
+
+    this.logger.info(
+      { access: groups.join('+'), calendarCount: targets.length, totalObjects: objects.length },
+      'Fetched events from the calendars of one access group'
+    );
+
+    return objects;
   }
 
   /**

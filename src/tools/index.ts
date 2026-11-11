@@ -12,6 +12,8 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Logger } from 'pino';
 import type { CalendarService } from '../caldav/calendar-service.js';
+import type { CalendarAccess } from '../caldav/access.js';
+import type { DAVCalendar } from 'tsdav';
 import type { AddressBookService } from '../caldav/addressbook-service.js';
 import { setApprover } from '../approval.js';
 import { runToolCall } from '../caldav/dav-fetch.js';
@@ -134,7 +136,7 @@ export function registerAllTools(
   // Register list_calendars tool inline (CAL-05)
   server.tool(
     'list_calendars',
-    'List all available calendars for the authenticated user.',
+    'List the calendars of the account, grouped by access: your own, shared with write access, and shared read-only.',
     {},
     {
       readOnlyHint: true,
@@ -160,17 +162,43 @@ export function registerAllTools(
           };
         }
 
-        // Format as list of calendar names with URLs
-        const formattedCalendars = calendars
-          .map((cal) => {
-            const displayName = getCollectionDisplayName(cal);
-            return `${displayName}\n  URL: ${cal.url}`;
-          })
-          .join('\n\n');
+        // Group the calendars by what the account may do with them. A calendar whose
+        // rights the server does not tell stays in its own section, listed as before.
+        const groups: Record<CalendarAccess, DAVCalendar[]> = { mine: [], write: [], read: [] };
+        const unknown: DAVCalendar[] = [];
+        for (const calendar of calendars) {
+          const access = calendarService.calendarAccess(calendar);
+          (access ? groups[access] : unknown).push(calendar);
+        }
 
-        const result = `Available calendars (${calendars.length}):\n\n${formattedCalendars}`;
+        const render = (list: DAVCalendar[]) =>
+          list
+            .map((cal) => {
+              const displayName = getCollectionDisplayName(cal);
+              return `${displayName}\n  URL: ${cal.url}`;
+            })
+            .join('\n\n');
 
-        logger.info({ count: calendars.length }, 'Calendars listed');
+        const sections: string[] = [];
+        if (unknown.length === calendars.length) {
+          sections.push(`Available calendars (${calendars.length}):\n\n${render(calendars)}`);
+        } else {
+          const counts = [
+            `${groups.mine.length} yours`,
+            `${groups.write.length} shared with write access`,
+            `${groups.read.length} shared read-only`,
+          ];
+          sections.push(`Available calendars (${calendars.length}): ${counts.join(', ')}`);
+          if (groups.mine.length > 0) sections.push(`My calendars (${groups.mine.length}):\n\n${render(groups.mine)}`);
+          if (groups.write.length > 0) sections.push(`Shared with write access (${groups.write.length}):\n\n${render(groups.write)}`);
+          if (groups.read.length > 0) sections.push(`Shared read-only (${groups.read.length}):\n\n${render(groups.read)}`);
+          if (unknown.length > 0) sections.push(`Access rights unknown (${unknown.length}):\n\n${render(unknown)}`);
+          sections.push('Use calendar: "mine", "writable" (yours and the ones shared with write access), "shared-write" or "read-only" to query one group, "all" for every calendar.');
+        }
+
+        const result = sections.join('\n\n');
+
+        logger.info({ count: calendars.length, groups: Object.fromEntries(Object.entries(groups).map(([k, v]) => [k, v.length])) }, 'Calendars listed');
 
         return {
           content: [

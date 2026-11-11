@@ -4,6 +4,9 @@ All notable changes to mcp-twake-dav are documented here. The format follows [Ke
 
 ## [Unreleased]
 
+### Added
+- `list_calendars` groups the calendars by access rights, read from `DAV:current-user-privilege-set` and `DAV:owner` (RFC 3744): the calendars the user owns, those shared with write access, and those shared read-only. `get_todays_schedule`, `get_events_in_range`, `get_next_event`, `search_events` and `check_availability` accept `calendar: "mine"`, `"writable"`, `"shared-write"` or `"read-only"` to query one group, so the meetings of colleagues' calendars no longer land in the user's agenda.
+
 ## [4.2.1] - 2026-11-11
 
 ### Fixed

@@ -174,6 +174,29 @@ DAV_DEFAULT_CALENDAR="Jane Doe"
 
 Without `DAV_HREF_PREFIX`, discovery fails with `cannot find homeUrl` or calendars come back empty.
 
+#### Your calendars and the ones shared with you
+
+An account often sees more than its own calendars: colleagues share theirs, read-only or with write access. `list_calendars` groups them, from the `DAV:current-user-privilege-set` and `DAV:owner` the server publishes (RFC 3744):
+
+```text
+Available calendars (15): 2 yours, 3 shared with write access, 10 shared read-only
+
+My calendars (2): …
+Shared with write access (3): …
+Shared read-only (10): …
+```
+
+The query tools take the name of a group, so an assistant asked "what's on my calendar?" does not list other people's meetings:
+
+```text
+get_todays_schedule(calendar: "mine")         # the calendars you own
+get_todays_schedule(calendar: "writable")     # every calendar you may write to, your own included
+get_todays_schedule(calendar: "shared-write") # somebody else's calendars shared with write access
+get_todays_schedule(calendar: "read-only")    # only the ones shared with you for reading
+```
+
+`calendar: "all"` still queries everything, and a name still targets one calendar. A server that does not publish these properties gets the plain list, and the group names are refused as unknown calendars.
+
 ## Use it with your assistant
 
 ### Claude Desktop

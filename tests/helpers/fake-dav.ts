@@ -20,7 +20,24 @@ export interface DavRequest {
 }
 
 export type DavHandler = (req: DavRequest, res: http.ServerResponse) => DavReply | null | void;
+/** How the fake server shares its calendars (RFC 3744 properties) */
+export interface FakeDavOptions {
+  /** Calendars the account owns but may only read */
+  readOnly?: string[];
+  /** Calendars owned by somebody else and shared with write access */
+  sharedWithWrite?: string[];
+}
 
+const PRINCIPAL = '<d:href>/principals/u1/</d:href>';
+
+/** DAV:owner, DAV:current-user-principal and DAV:current-user-privilege-set of one calendar */
+function accessProps(name: string, options: FakeDavOptions): string {
+  const owner = options.sharedWithWrite?.includes(name) ? '<d:href>/principals/team-1/</d:href>' : PRINCIPAL;
+  const privileges = options.readOnly?.includes(name)
+    ? '<d:privilege><d:read/></d:privilege><d:privilege><d:read-free-busy/></d:privilege>'
+    : '<d:privilege><d:read/></d:privilege><d:privilege><d:write/></d:privilege><d:privilege><d:write-content/></d:privilege>';
+  return `<d:owner>${owner}</d:owner><d:current-user-principal>${PRINCIPAL}</d:current-user-principal><d:current-user-privilege-set>${privileges}</d:current-user-privilege-set>`;
+}
 const XML = { 'content-type': 'application/xml; charset=utf-8' };
 const NS = 'xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:card="urn:ietf:params:xml:ns:carddav" xmlns:cs="http://calendarserver.org/ns/"';
 
@@ -48,14 +65,14 @@ export function addressObjects(objects: Array<{ href: string; vcard: string }>):
   return { status: 207, body: multistatus(body), headers: XML };
 }
 
-function discovery(req: DavRequest, calendars: string[]): DavReply {
+function discovery(req: DavRequest, calendars: string[], options: FakeDavOptions = {}): DavReply {
   if (req.url.startsWith('/.well-known')) return { status: 404 };
   const prop = (name: string) => req.body.includes(name);
   if (req.url === '/calendars/u1/') {
     const list = calendars.map((c) =>
       propResponse(
         `/calendars/u1/${c}/`,
-        `<d:displayname>${c}</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VEVENT"/></c:supported-calendar-component-set><cs:getctag>1</cs:getctag>`
+        `<d:displayname>${c}</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VEVENT"/></c:supported-calendar-component-set><cs:getctag>1</cs:getctag>${accessProps(c, options)}`
       )
     );
     return { status: 207, body: multistatus(list.join('')), headers: XML };
@@ -83,7 +100,7 @@ export interface FakeDav {
   close(): Promise<void>;
 }
 
-export async function startFakeDav(calendars = ['Perso']): Promise<FakeDav> {
+export async function startFakeDav(calendars = ['Perso'], options: FakeDavOptions = {}): Promise<FakeDav> {
   const fake: FakeDav = {
     url: '',
     requests: [],
@@ -100,7 +117,7 @@ export async function startFakeDav(calendars = ['Perso']): Promise<FakeDav> {
       const req: DavRequest = { method: incoming.method ?? '', url: incoming.url ?? '', body, headers: incoming.headers };
       fake.requests.push(req);
       const isDiscovery = req.method === 'PROPFIND' || req.url.startsWith('/.well-known');
-      const reply = fake.handler(req, res) ?? (isDiscovery ? discovery(req, calendars) : undefined);
+      const reply = fake.handler(req, res) ?? (isDiscovery ? discovery(req, calendars, options) : undefined);
       // A handler that wrote nothing and returned undefined keeps the socket open on purpose.
       if (!reply) return;
       res.writeHead(reply.status, reply.headers);

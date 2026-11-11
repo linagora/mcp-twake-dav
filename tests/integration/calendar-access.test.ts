@@ -1,0 +1,118 @@
+/**
+ * Calendars shared with the account: list_calendars tells them apart, and the query
+ * tools can be pointed at one group ("mine", "writable", "read-only").
+ */
+
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import pino from 'pino';
+import { createDualClients } from '../../src/caldav/client.js';
+import { CalendarService } from '../../src/caldav/calendar-service.js';
+import { AddressBookService } from '../../src/caldav/addressbook-service.js';
+import { createServer } from '../../src/server.js';
+import type { Config } from '../../src/config/schema.js';
+import { calendarObjects, startFakeDav, type FakeDav } from '../helpers/fake-dav.js';
+
+const logger = pino({ level: 'silent' });
+
+// Starting now is today in the time zone of any machine.
+const now = `${new Date().toISOString().slice(0, 19).replace(/[-:]/g, '')}Z`;
+const event = (uid: string, summary: string) =>
+  `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:${uid}\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:${now}\r\nDURATION:PT1H\r\nSUMMARY:${summary}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`;
+
+const CALENDARS = ['Perso', 'Shared', 'Team'];
+
+describe('calendar access rights', () => {
+  let dav: FakeDav;
+  let client: Client;
+
+  beforeAll(async () => {
+    dav = await startFakeDav(CALENDARS, { readOnly: ['Shared'], sharedWithWrite: ['Team'] });
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+    const clients = await createDualClients(config, logger);
+    const server = createServer(new CalendarService(clients.caldav, logger, config), new AddressBookService(clients.carddav, logger), logger);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    client = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+    await client.connect(clientTransport);
+  });
+
+  afterAll(async () => {
+    await client.close();
+    await dav.close();
+  });
+
+  beforeEach(() => {
+    dav.requests.length = 0;
+    dav.handler = (req) => {
+      if (req.method !== 'REPORT') return null;
+      const calendar = CALENDARS.find((c) => req.url.includes(`/${c}/`));
+      if (!calendar) return { status: 404 };
+      return calendarObjects([{ href: `/calendars/u1/${calendar}/${calendar}.ics`, ical: event(calendar, `Event of ${calendar}`) }]);
+    };
+  });
+
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
+    const result = await client.callTool({ name, arguments: args });
+    return (result.content as Array<{ text: string }>).map((c) => c.text).join('\n');
+  };
+
+  it('lists the calendars in three groups', async () => {
+    const text = await call('list_calendars');
+
+    expect(text).toContain('Available calendars (3): 1 yours, 1 shared with write access, 1 shared read-only');
+    expect(text).toContain('My calendars (1):');
+    expect(text).toContain('Shared with write access (1):');
+    expect(text).toContain('Shared read-only (1):');
+
+    // each name sits in its own section
+    const mine = text.slice(text.indexOf('My calendars'), text.indexOf('Shared with write access'));
+    const write = text.slice(text.indexOf('Shared with write access'), text.indexOf('Shared read-only'));
+    const read = text.slice(text.indexOf('Shared read-only'), text.indexOf('Use calendar:'));
+    expect(mine).toContain('Perso');
+    expect(write).toContain('Team');
+    expect(read).toContain('Shared');
+  });
+
+  it('queries only the calendars of the requested group', async () => {
+    expect(await call('get_todays_schedule', { calendar: 'mine' })).toContain('Event of Perso');
+    expect(dav.requests.filter((r) => r.method === 'REPORT').every((r) => r.url.includes('/Perso/'))).toBe(true);
+
+    // "writable" covers the account's own calendars and the ones shared with write access
+    dav.requests.length = 0;
+    const writable = await call('get_todays_schedule', { calendar: 'writable' });
+    expect(writable).toContain('Event of Perso');
+    expect(writable).toContain('Event of Team');
+    expect(dav.requests.filter((r) => r.method === 'REPORT').every((r) => !r.url.includes('/Shared/'))).toBe(true);
+
+    // "shared-write" keeps only the calendars somebody else shares with write access
+    dav.requests.length = 0;
+    expect(await call('get_todays_schedule', { calendar: 'shared-write' })).toContain('Event of Team');
+    expect(dav.requests.filter((r) => r.method === 'REPORT').every((r) => r.url.includes('/Team/'))).toBe(true);
+  });
+
+  it('accepts "read-only" and "readonly"', async () => {
+    expect(await call('get_todays_schedule', { calendar: 'read-only' })).toContain('Event of Shared');
+    expect(await call('get_todays_schedule', { calendar: 'READONLY' })).toContain('Event of Shared');
+  });
+
+  it('keeps a calendar name working', async () => {
+    expect(await call('get_todays_schedule', { calendar: 'Team' })).toContain('Event of Team');
+  });
+
+  it('names the empty group and how to list the calendars', async () => {
+    const lonely = await startFakeDav(['Perso']);
+    try {
+      const config = { DAV_URL: lonely.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      await expect(service.fetchEventsByAccess('read')).rejects.toThrow(
+        /No calendar with read-only access was found\.[\s\S]*list_calendars/
+      );
+    } finally {
+      await lonely.close();
+    }
+  });
+});

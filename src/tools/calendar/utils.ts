@@ -17,6 +17,7 @@ import { z } from 'zod';
 import type { Logger } from 'pino';
 import type { DAVCalendarObject } from 'tsdav';
 import type { CalendarService, TimeRange } from '../../caldav/calendar-service.js';
+import type { CalendarAccess } from '../../caldav/access.js';
 import type { EventDTO, FreeBusyPeriod } from '../../types/dtos.js';
 import { addReadWarning, hasPartialRead } from '../../caldav/dav-fetch.js';
 import { transformCalendarObject } from '../../transformers/event.js';
@@ -601,9 +602,36 @@ export async function resolveCalendarEvents(
     ? (defaultCalendar || undefined)
     : (calendarParam || defaultCalendar);
   if (target) {
+    // A group of access rights rather than one name: "mine", "writable", "read-only"
+    const access = ACCESS_GROUPS[target.trim().toLowerCase()];
+    if (access) return calendarService.fetchEventsByAccess(access, timeRange);
     return calendarService.fetchEventsByCalendarName(target, timeRange);
   }
   return calendarService.fetchAllEvents(timeRange);
+}
+
+/** What the `calendar` parameter of the query tools also accepts, by lowercase name */
+const ACCESS_GROUPS: Record<string, CalendarAccess[]> = {
+  mine: ['mine'],
+  // everything the account may write: its own calendars and the ones shared with write access
+  writable: ['mine', 'write'],
+  'shared-write': ['write'],
+  'read-only': ['read'],
+  readonly: ['read'],
+};
+
+/**
+ * Description of the `calendar` parameter, shared by the query tools
+ *
+ * @param defaultCalendar - DAV_DEFAULT_CALENDAR, when the user configured one
+ * @returns the description shown to the model
+ */
+export function calendarParamDescription(defaultCalendar?: string): string {
+  const groups =
+    'Also "mine" (the calendars you own), "writable" (every calendar you may write to, your own included), ' +
+    '"shared-write" (somebody else\'s calendars shared with write access) or "read-only" (shared with you for reading), ' +
+    'or "all" for every calendar. ';
+  return 'Calendar name to search in. ' + groups + (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to all calendars.');
 }
 
 /**
