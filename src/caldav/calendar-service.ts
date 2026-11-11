@@ -15,6 +15,7 @@ import type { Config } from '../config/schema.js';
 import { CollectionCache } from './cache.js';
 import { withRetry } from './retry.js';
 import { discoverCalendars, discoverSchedulingInbox } from './discovery.js';
+import { CALENDAR_GROUPS, calendarKey, discoverCalendarAccess, isCalendarGroup, type CalendarAccess, type CalendarSharing } from './access.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictError, DavHttpError, isDavUnsupported } from '../errors.js';
 import { addReadWarning, hasPartialRead } from './dav-fetch.js';
@@ -55,6 +56,10 @@ export class CalendarService {
   private readonly config: Config;
   private readonly objectCache: CollectionCache<DAVCalendarObject>;
   private calendars: DAVCalendar[] = [];
+  private sharing = new Map<string, CalendarSharing>();
+  /** the discovery in flight: two tools called at once wait for the same one, and see the same calendars and rights */
+  private loading?: Promise<void>;
+  private loaded = false;
   private schedulingInboxUrl: string | null | undefined = undefined;
 
   /**
@@ -106,19 +111,37 @@ export class CalendarService {
    * @throws Error if discovery fails after retries
    */
   async listCalendars(): Promise<DAVCalendar[]> {
-    // Lazy initialization: return cached calendars if already loaded
-    if (this.calendars.length > 0) {
-      this.logger.debug('Returning cached calendar list');
-      return this.calendars;
-    }
-
-    // Discover calendars with retry
-    this.calendars = await withRetry(
-      () => discoverCalendars(this.client, this.logger),
-      this.logger
-    );
-
+    // Lazy initialization: discover once, calendars and their rights together
+    if (!this.loaded) await this.load();
+    this.logger.debug('Returning cached calendar list');
     return this.calendars;
+  }
+
+  /**
+   * Discover the calendars and their access rights, once for every caller
+   *
+   * A tool call arriving while the first one runs waits for the same promise: it used to
+   * see the calendars of a half-finished discovery, with no access rights at all.
+   */
+  private load(): Promise<void> {
+    this.loading ??= (async () => {
+      try {
+        if (this.calendars.length === 0) {
+          this.calendars = await withRetry(() => discoverCalendars(this.client, this.logger), this.logger);
+        }
+        // a server that does not publish the rights, or one that keeps failing, leaves them unknown
+        this.sharing = await withRetry(() => discoverCalendarAccess(this.client, this.calendars, this.logger), this.logger).catch((err) => {
+          this.logger.warn({ err }, 'Calendar access rights not available, listing calendars without them');
+          return new Map<string, CalendarSharing>();
+        });
+        this.loaded = true;
+      } catch (error) {
+        // a failed discovery is tried again by the next call
+        this.loading = undefined;
+        throw error;
+      }
+    })();
+    return this.loading;
   }
 
   /**
@@ -133,16 +156,82 @@ export class CalendarService {
   async refreshCalendars(): Promise<DAVCalendar[]> {
     this.logger.info('Refreshing calendar list');
 
-    // Re-discover calendars with retry
-    this.calendars = await withRetry(
-      () => discoverCalendars(this.client, this.logger),
-      this.logger
-    );
+    // Let a discovery already running finish: two of them writing at once would leave the
+    // service with one calendar list and the rights of another
+    await this.loading?.catch(() => undefined);
+
+    // Re-discover calendars and their rights
+    this.loaded = false;
+    this.loading = undefined;
+    this.calendars = [];
+    this.sharing = new Map();
+    await this.load();
 
     // Clear object cache since calendars may have changed
     this.objectCache.clear();
 
     return this.calendars;
+  }
+
+  /**
+   * Access rights of a calendar, when the server tells them
+   *
+   * @param calendar - a calendar from listCalendars()
+   * @returns its group and owner, or undefined on a server without ACL support
+   */
+  sharingOf(calendar: DAVCalendar): CalendarSharing | undefined {
+    // the URL only: a name can be shared by two calendars, and would lend one the rights of the other
+    return this.sharing.get(calendarKey(calendar.url));
+  }
+
+  /**
+   * Whether one of the calendars has this display name (case-insensitive)
+   *
+   * A group name ("mine", "writable"…) only means a group when no calendar of the account
+   * carries that name.
+   */
+  async hasCalendarNamed(name: string): Promise<boolean> {
+    await this.listCalendars();
+    return this.calendars.some((calendar) => String(calendar.displayName || '').toLowerCase() === name.trim().toLowerCase());
+  }
+
+  /**
+   * Group of a calendar: "mine", shared "write", or "read" only
+   *
+   * @param calendar - a calendar from listCalendars()
+   * @returns the group, or undefined when the server does not tell
+   */
+  calendarAccess(calendar: DAVCalendar): CalendarAccess | undefined {
+    return this.sharingOf(calendar)?.access;
+  }
+
+  /**
+   * Fetch events from the calendars of one or several access groups
+   *
+   * @param access - "mine", "write" (somebody else's calendar shared with write
+   *   access) or "read" (shared read-only), alone or together
+   * @param timeRange - Optional ISO 8601 time range for server-side filtering
+   * @returns Flattened array of DAVCalendarObject from every calendar of the groups
+   * @throws Error if no calendar is in these groups, or if a fetch fails
+   */
+  async fetchEventsByAccess(access: CalendarAccess | CalendarAccess[], timeRange?: TimeRange): Promise<DAVCalendarObject[]> {
+    await this.listCalendars();
+
+    const groups = Array.isArray(access) ? access : [access];
+    const targets = this.calendars.filter((calendar) => {
+      const own = this.calendarAccess(calendar);
+      return own !== undefined && groups.includes(own);
+    });
+    if (targets.length === 0) throw this.noAccessCalendars(groups);
+
+    const objects = await this.fetchEventsFrom(targets, timeRange);
+
+    this.logger.info(
+      { access: groups.join('+'), calendarCount: targets.length, totalObjects: objects.length },
+      'Fetched events from the calendars of one access group'
+    );
+
+    return objects;
   }
 
   /**
@@ -223,6 +312,63 @@ export class CalendarService {
   }
 
   /**
+   * The error for a calendar name, or a group, that matches no calendar of the account
+   *
+   * @param name - what the caller asked for
+   */
+  private noCalendarFor(name: string): Error {
+    if (!isCalendarGroup(name)) return this.notFound(name);
+    return this.noAccessCalendars(CALENDAR_GROUPS[name.trim().toLowerCase()]);
+  }
+
+  /**
+   * The calendars a name selects: all of them for "all" or nothing, the calendars of a group for a group name,
+   * the one that carries the name otherwise
+   */
+  private calendarsFor(name: string | undefined): DAVCalendar[] {
+    const wanted = name?.trim();
+    if (!wanted || wanted.toLowerCase() === 'all') return this.calendars;
+    // a calendar that really carries the name keeps it, as in the query tools
+    const named = this.calendars.filter((calendar) => String(calendar.displayName || '').toLowerCase() === wanted.toLowerCase());
+    if (named.length > 0 || !isCalendarGroup(wanted)) return named;
+    const groups = CALENDAR_GROUPS[wanted.toLowerCase()];
+    return this.calendars.filter((calendar) => {
+      const access = this.calendarAccess(calendar);
+      return access !== undefined && groups.includes(access);
+    });
+  }
+
+  /**
+   * The error for a group with no calendar in it, saying why rather than blaming the group
+   *
+   * @param groups - the access groups that were asked for
+   */
+  private noAccessCalendars(groups: CalendarAccess[]): Error {
+    if (this.calendars.every((calendar) => this.calendarAccess(calendar) === undefined)) {
+      return new Error('This calendar server does not publish the access rights of its calendars, so a group cannot be queried.\n\nFix: Use list_calendars, then name a calendar or use "all".');
+    }
+    const described = groups
+      .map((group) => (group === 'mine' ? 'you as owner' : group === 'write' ? 'write access shared by somebody else' : 'read-only access'))
+      .join(' or ');
+    return new Error(`No calendar with ${described} was found.\n\nFix: Use list_calendars to see the calendars and their access.`);
+  }
+
+  /**
+   * The error for a name that matches no calendar, saying why when it is a group of access rights
+   *
+   * Reading tools accept "mine", "writable", "shared-write" and "read-only"; writing into several
+   * calendars at once has no meaning, so a write needs a calendar name.
+   */
+  private notFound(name: string): Error {
+    if (isCalendarGroup(name)) {
+      return new Error(
+        `"${name}" is a group of calendars, not a calendar: name the calendar to use.\n\nFix: Use list_calendars to see the calendars and their access.`
+      );
+    }
+    return new Error(`Calendar "${name}" not found.\n\nFix: Use list_calendars to see the available names.`);
+  }
+
+  /**
    * Fetch events from a single calendar identified by display name (case-insensitive)
    *
    * Looks up the calendar by displayName among all discovered calendars.
@@ -235,10 +381,10 @@ export class CalendarService {
   async fetchEventsByCalendarName(name: string, timeRange?: TimeRange): Promise<DAVCalendarObject[]> {
     await this.listCalendars();
     const match = this.calendars.find(
-      (cal) => (String(cal.displayName || '')).toLowerCase() === name.toLowerCase()
+      (cal) => (String(cal.displayName || '')).toLowerCase() === name.trim().toLowerCase()
     );
     if (!match) {
-      throw new Error(`Calendar "${name}" not found.\n\nFix: Use list_calendars to see the available names.`);
+      throw this.notFound(name);
     }
     return this.fetchEventsFrom([match], timeRange);
   }
@@ -312,10 +458,10 @@ export class CalendarService {
 
     if (calendarName) {
       const match = this.calendars.find(
-        (cal) => String(cal.displayName || '').toLowerCase() === calendarName.toLowerCase()
+        (cal) => String(cal.displayName || '').toLowerCase() === calendarName.trim().toLowerCase()
       );
       if (!match) {
-        throw new Error(`Calendar "${calendarName}" not found`);
+        throw this.notFound(calendarName);
       }
       targetCalendar = match;
     } else {
@@ -473,11 +619,8 @@ export class CalendarService {
     //    can miss events that do exist.
     try {
       await this.listCalendars();
-      const targets = calendarName
-        ? this.calendars.filter(
-            (cal) => String(cal.displayName || '').toLowerCase() === calendarName.toLowerCase()
-          )
-        : this.calendars;
+      const targets = this.calendarsFor(calendarName);
+      if (calendarName && targets.length === 0) throw this.noCalendarFor(calendarName);
       const filters = [
         {
           'comp-filter': {
@@ -517,10 +660,8 @@ export class CalendarService {
       }
     }
 
-    // 2. Fallback: fetch raw calendar objects
-    const rawObjects = calendarName
-      ? await this.fetchEventsByCalendarName(calendarName)
-      : await this.fetchAllEvents();
+    // 2. Fallback: fetch raw calendar objects, from the same calendars as above (a group is not a calendar name)
+    const rawObjects = await this.fetchEventsFrom(this.calendarsFor(calendarName));
 
     // Transform and search for matching UID
     for (const obj of rawObjects) {
@@ -597,13 +738,10 @@ export class CalendarService {
     const email = this.attendeeEmail();
     const range = timeRange ?? { start: new Date().toISOString(), end: new Date(Date.now() + 30 * 86400000).toISOString() };
     await this.listCalendars();
-    const wanted = calendarName === 'all' ? undefined : calendarName || this.config.DAV_DEFAULT_CALENDAR;
-    const targets = wanted
-      ? this.calendars.filter((cal) => String(cal.displayName || '').toLowerCase() === wanted.toLowerCase())
-      : this.calendars;
-    if (wanted && targets.length === 0) {
-      throw new Error(`Calendar "${wanted}" not found.\n\nFix: Use list_calendars to see the available names.`);
-    }
+    // "all" means every calendar; a name and a group are resolved by calendarsFor()
+    const wanted = calendarName === 'all' ? undefined : calendarName ?? this.config.DAV_DEFAULT_CALENDAR?.trim();
+    const targets = this.calendarsFor(wanted);
+    if (wanted && targets.length === 0) throw this.noCalendarFor(wanted);
     const icalTime = (iso: string) => `${new Date(iso).toISOString().slice(0, 19).replace(/[-:.]/g, '')}Z`;
     const filters = [
       {
