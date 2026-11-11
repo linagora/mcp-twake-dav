@@ -353,12 +353,7 @@ export class CalendarService {
     return new Error(`No calendar with ${described} was found.\n\nFix: Use list_calendars to see the calendars and their access.`);
   }
 
-  /** DAV_DEFAULT_CALENDAR, unless it is "all" or a group of access rights, which no calendar is called */
-  private configuredDefaultCalendar(): string | undefined {
-    const configured = this.config.DAV_DEFAULT_CALENDAR?.trim();
-    if (!configured || configured.toLowerCase() === 'all' || isCalendarGroup(configured)) return undefined;
-    return configured;
-  }
+
 
   /**
    * The error for a name that matches no calendar, saying why when it is a group of access rights
@@ -745,8 +740,8 @@ export class CalendarService {
     const email = this.attendeeEmail();
     const range = timeRange ?? { start: new Date().toISOString(), end: new Date(Date.now() + 30 * 86400000).toISOString() };
     await this.listCalendars();
-    // "all" means every calendar; a group is resolved to its calendars by calendarsFor()
-    const wanted = calendarName === 'all' ? undefined : calendarName ?? this.configuredDefaultCalendar();
+    // "all" means every calendar; a name and a group are resolved by calendarsFor()
+    const wanted = calendarName === 'all' ? undefined : calendarName ?? this.config.DAV_DEFAULT_CALENDAR?.trim();
     const targets = this.calendarsFor(wanted);
     if (wanted && targets.length === 0) throw this.noCalendarFor(wanted);
     const icalTime = (iso: string) => `${new Date(iso).toISOString().slice(0, 19).replace(/[-:.]/g, '')}Z`;

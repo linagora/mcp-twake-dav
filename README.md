@@ -130,7 +130,7 @@ The server is configured through environment variables, usually set in your MCP 
 
 | Variable | Description | Default |
 |---|---|---|
-| `DAV_DEFAULT_CALENDAR` | Calendar used when the assistant does not name one; a group name works for reading (see [Your calendars and the ones shared with you](#your-calendars-and-the-ones-shared-with-you)) | all calendars |
+| `DAV_DEFAULT_CALENDAR` | Calendar used when the assistant does not name one; a group of calendars works too (see [Your calendars and the ones shared with you](#your-calendars-and-the-ones-shared-with-you)) | all calendars |
 | `DAV_DEFAULT_ADDRESSBOOK` | Address book used by default | all address books |
 | `DAV_ORGANIZER_EMAIL` / `DAV_ORGANIZER_NAME` | Organizer written in events that have attendees; your address as an attendee for `list_invitations` and `respond_to_invitation` (required with an SSO token) | none |
 | `DAV_RECURRING_WRITES` | `false` = `update_event` / `delete_event` refuse recurring series and occurrences | `true` |

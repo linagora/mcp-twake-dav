@@ -255,7 +255,8 @@ describe('calendar access rights', () => {
       const service = new CalendarService(clients.caldav, logger, config);
 
       named.requests.length = 0;
-      await service.findEventByUid('mine', 'mine');
+      // the event the calendar named "mine" holds
+      await expect(service.findEventByUid('mine', 'mine')).resolves.toMatchObject({ uid: 'mine' });
       const queried = named.requests.filter((request) => request.method === 'REPORT').map((request) => request.url);
       expect(queried.length).toBeGreaterThan(0);
       expect(queried.every((url) => url.includes('/mine/'))).toBe(true);
