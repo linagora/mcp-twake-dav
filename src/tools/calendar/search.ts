@@ -11,6 +11,7 @@ import type { CalendarService } from '../../caldav/calendar-service.js';
 import {
   expandEvents,
   deduplicateEvents,
+  sortEvents,
   formatEvent,
   parseNaturalDateRange,
   searchEventsByKeyword,
@@ -129,7 +130,7 @@ export function registerSearchEventsTool(
         }
 
         // One entry per event, once the filters have chosen among its copies
-        let events = deduplicateEvents(found, logger);
+        let events = sortEvents(deduplicateEvents(found, logger));
 
         // Cut after the filters: a match can be anywhere in the window.
         const { page, nextCursor, more } = paginateEvents(events, params.limit, params.cursor);

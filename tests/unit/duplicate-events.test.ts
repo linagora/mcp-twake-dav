@@ -46,21 +46,21 @@ describe('the same event on several calendars', () => {
     expect(events[0].summary).toBe('Weekly meeting');
   });
 
-  it('keeps the first copy of the server order', () => {
+  it('keeps the copy of the calendar listed first, even when another URL sorts before it', () => {
     const events = getEventsWithRecurrenceExpansion(
       [
-        event('https://dav.example.com/calendars/u1/mine/e1.ics', 'shared@example.com', 'Mine'),
-        event('https://dav.example.com/calendars/u1/team/e1.ics', 'shared@example.com', 'Team'),
+        // "zeta" sorts after "alpha": the server order, not the URL, must decide
+        event('https://dav.example.com/calendars/u1/zeta/e1.ics', 'shared@example.com', 'First of the server'),
+        event('https://dav.example.com/calendars/u1/alpha/e1.ics', 'shared@example.com', 'Second of the server'),
       ],
       range,
       logger
     );
 
     expect(events).toHaveLength(1);
-    expect(events[0].summary).toBe('Mine');
-    expect(events[0].url).toContain('/mine/');
+    expect(events[0].summary).toBe('First of the server');
+    expect(events[0].url).toContain('/zeta/');
   });
-;
 
   it('does not merge two different events at the same time', () => {
     const events = getEventsWithRecurrenceExpansion(
@@ -165,6 +165,46 @@ END:VCALENDAR`,
 
     expect(events).toHaveLength(1);
     expect(events[0].summary).toBe('Comité (déplacé)');
+  });
+
+  it('deduplicates a standalone occurrence against the series of another calendar', () => {
+    // one calendar holds the series, another holds a single moved occurrence of it: same UID, the
+    // RECURRENCE-ID written in the file and the slot of the series must meet
+    const series = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:pair@example.com
+DTSTAMP:20260101T000000Z
+DTSTART:20261109T100000Z
+DTEND:20261109T110000Z
+RRULE:FREQ=DAILY;COUNT=3
+SUMMARY:Comité
+END:VEVENT
+END:VCALENDAR`;
+    const alone = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:pair@example.com
+DTSTAMP:20260101T000000Z
+RECURRENCE-ID:20261111T100000Z
+DTSTART:20261110T100000Z
+DTEND:20261110T110000Z
+SUMMARY:Comité (déplacé)
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = getEventsWithRecurrenceExpansion(
+      [
+        { url: 'https://dav.example.com/calendars/u1/mine/s.ics', etag: '"1"', data: series } as DAVCalendarObject,
+        { url: 'https://dav.example.com/calendars/u1/team/a.ics', etag: '"2"', data: alone } as DAVCalendarObject,
+      ],
+      { start: '2026-11-09T00:00:00Z', end: '2026-11-12T00:00:00Z' },
+      logger
+    );
+
+    // 9 and 10 November from the series, and the moved occurrence once — not twice
+    expect(events.filter((event) => event.summary === 'Comité (déplacé)')).toHaveLength(1);
+    expect(events).toHaveLength(3);
   });
 
   it('keeps the occurrences of a series apart', () => {

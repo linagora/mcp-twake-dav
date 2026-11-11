@@ -332,7 +332,9 @@ export function getEventsWithRecurrenceExpansion(
   logger: Logger,
   options: { earliestOnly?: boolean } = {},
 ): EventDTO[] {
-  return deduplicateEvents(expandEvents(rawEvents, timeRange, logger, options), logger);
+  // deduplicate before sorting: the first copy must be the first calendar of the server's list, not
+  // the one whose URL sorts first
+  return sortEvents(deduplicateEvents(expandEvents(rawEvents, timeRange, logger, options), logger));
 }
 
 /**
@@ -443,6 +445,7 @@ export function expandEvents(
             if (!overlaps(details.startDate.toJSDate(), details.endDate.toJSDate())) continue;
             found.push({
               key: `${eventDTO.uid}|${occurrenceDate.toISOString()}`,
+              exception: true,
               event: {
                 ...eventDTO,
                 summary: exceptionEvent.summary || eventDTO.summary,
@@ -482,21 +485,40 @@ export function expandEvents(
       if ((eventDTO.endDate > startDate || eventDTO.startDate >= startDate) && eventDTO.startDate < endDate) {
         // an event stored alone with a RECURRENCE-ID is one occurrence of a series: its slot, not its
         // (possibly moved) start, is what identifies it
-        found.push({ key: `${eventDTO.uid}|${recurrenceIdOf(eventDTO._raw) ?? eventDTO.startDate.toISOString()}`, event: eventDTO });
+        const recurrenceId = recurrenceIdOf(eventDTO._raw);
+        found.push({ key: `${eventDTO.uid}|${recurrenceId ?? eventDTO.startDate.toISOString()}`, event: eventDTO, ...(recurrenceId ? { exception: true } : {}) });
       }
     }
   }
 
-  return found.sort((a, b) =>
-    a.event.startDate.getTime() - b.event.startDate.getTime()
-    || a.event.uid.localeCompare(b.event.uid)
-    || a.event.url.localeCompare(b.event.url)
+  return found;
+}
+
+/** Sort by start, then UID and URL, so that pages stay stable */
+export function sortEvents(events: EventDTO[]): EventDTO[] {
+  return events.sort((a, b) =>
+    a.startDate.getTime() - b.startDate.getTime()
+    || a.uid.localeCompare(b.uid)
+    || a.url.localeCompare(b.url)
   );
 }
 
-/** The RECURRENCE-ID of an event that carries one, as written */
+/**
+ * The RECURRENCE-ID of an event that carries one, as an instant
+ *
+ * Read with ical.js, like the slots of a series: a file writes `20261111T100000Z`, the expansion
+ * gives `2026-11-11T10:00:00.000Z`, and the two must meet.
+ */
 function recurrenceIdOf(ics: string | undefined): string | undefined {
-  return ics === undefined ? undefined : /^RECURRENCE-ID[^:\r\n]*:([^\r\n]+)/m.exec(ics)?.[1]?.trim();
+  if (ics === undefined) return undefined;
+  try {
+    const component = ICAL.parse(ics);
+    const vevent = new ICAL.Component(component).getFirstSubcomponent('vevent');
+    const value = vevent?.getFirstPropertyValue('recurrence-id') as ICAL.Time | null | undefined;
+    return value?.toJSDate().toISOString();
+  } catch {
+    return undefined;
+  }
 }
 
 /** An event with the identity the deduplication uses */
@@ -504,6 +526,8 @@ export interface FoundEvent {
   /** the UID and the slot the series gives the occurrence, which two copies agree on */
   key: string;
   event: EventDTO;
+  /** this occurrence was replaced by a RECURRENCE-ID exception: its version wins over a plain copy */
+  exception?: boolean;
 }
 
 /**
@@ -520,15 +544,22 @@ export interface FoundEvent {
  * @returns every event once, an occurrence at a time
  */
 export function deduplicateEvents(found: FoundEvent[], logger: Logger): EventDTO[] {
-  const unique = new Map<string, EventDTO>();
-  for (const { key, event } of found) {
-    if (!unique.has(key)) {
-      unique.set(key, event);
+  const unique = new Map<string, FoundEvent>();
+  for (const entry of found) {
+    const seen = unique.get(entry.key);
+    if (!seen) {
+      unique.set(entry.key, entry);
       continue;
     }
-    logger.debug({ uid: event.uid, date: event.startDate.toISOString(), url: event.url }, 'Skipping an event another calendar already lists');
+    // an occurrence replaced by an exception is the current version of it: it wins over a plain copy
+    if (entry.exception && !seen.exception) {
+      unique.set(entry.key, entry);
+      logger.debug({ uid: entry.event.uid, url: entry.event.url }, 'Keeping the exception of an event another calendar lists');
+      continue;
+    }
+    logger.debug({ uid: entry.event.uid, date: entry.event.startDate.toISOString(), url: entry.event.url }, 'Skipping an event another calendar already lists');
   }
-  return [...unique.values()];
+  return [...unique.values()].map((entry) => entry.event);
 }
 
 export const DEFAULT_EVENT_LIMIT = 50;
