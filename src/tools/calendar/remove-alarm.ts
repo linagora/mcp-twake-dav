@@ -13,6 +13,7 @@ import { ConflictError } from '../../errors.js';
 import { removeAlarmFromEvent, removeAllAlarmsFromEvent } from '../../transformers/event-builder.js';
 import ICAL from 'ical.js';
 import { approverFor } from '../../approval.js';
+import { defaultCalendarText } from './utils.js';
 
 /**
  * Register the remove_alarm tool
@@ -35,8 +36,8 @@ export function registerRemoveAlarmTool(
       uid: z.string().describe('The UID of the event to remove a reminder from. Use search_events to find event UIDs.'),
       alarmIndex: z.union([z.number(), z.literal('all')]).describe('The 0-based index of the reminder to remove, or "all" to remove all reminders. Index 0 is the first reminder.'),
       calendar: z.string().optional().describe(
-        'Calendar name to search in. Use "all" to search all calendars. ' +
-        (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to all calendars.')
+        'Calendar name to search in, or "all" (which uses the default calendar when one is configured). ' +
+        defaultCalendarText(defaultCalendar) + ' A group name searches the calendars of that group.'
       ),
     },
     {
@@ -49,9 +50,8 @@ export function registerRemoveAlarmTool(
         logger.debug({ params }, 'remove_alarm called');
 
         // Resolve target calendar
-        const resolvedCalendar = params.calendar === 'all'
-          ? undefined
-          : (params.calendar || defaultCalendar || undefined);
+        // the same rule as everywhere: a name as it comes, "all" and no name as the configured default
+        const resolvedCalendar = calendarService.resolveCalendarName(params.calendar ?? defaultCalendar);
 
         // Find event by UID
         const event = await calendarService.findEventByUid(params.uid, resolvedCalendar);
@@ -60,7 +60,7 @@ export function registerRemoveAlarmTool(
             content: [
               {
                 type: 'text' as const,
-                text: `Event not found with UID: ${params.uid}`,
+                text: `Event not found with UID: ${params.uid}${resolvedCalendar ? ` in the calendar "${resolvedCalendar}"` : ' in any calendar'}`,
               },
             ],
             isError: true,

@@ -12,6 +12,8 @@ import { ConflictError } from '../../errors.js';
 import { buildICalString } from '../../transformers/event-builder.js';
 import * as chrono from 'chrono-node';
 import { approverFor } from '../../approval.js';
+import { defaultCalendarText } from './utils.js';
+import { isAllCalendars, isCalendarGroup } from '../../caldav/access.js';
 
 /**
  * Register the create_event tool
@@ -43,7 +45,11 @@ export function registerCreateEventTool(
       location: z.string().optional().describe('Event location'),
       calendar: z.string().optional().describe(
         'Calendar name to create the event in. ' +
-        (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to first calendar.')
+        (defaultCalendar
+          ? isCalendarGroup(defaultCalendar)
+            ? 'A group of calendars cannot hold a new event: name the calendar.'
+            : defaultCalendarText(defaultCalendar)
+          : 'Defaults to first calendar.')
       ),
       allDay: z.boolean().optional().describe('If true, creates an all-day event (DATE format instead of DATE-TIME)'),
       recurrence: z.string().optional().describe('RRULE recurrence string (e.g., "FREQ=WEEKLY;BYDAY=MO", "FREQ=DAILY;COUNT=5")'),
@@ -122,8 +128,33 @@ export function registerCreateEventTool(
           };
         }
 
-        // Resolve target calendar
+        // Resolve target calendar. "all" and a group name several calendars, not one: say so before
+        // asking for approval, rather than failing once the user has accepted the write. A calendar
+        // that really carries one of those names keeps it.
         const resolvedCalendar = params.calendar || defaultCalendar;
+        const target = resolvedCalendar?.trim();
+        if (isAllCalendars(target)) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: '"all" does not name a calendar: name the calendar to create the event in.\n\nFix: Use list_calendars to see the calendars.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        if (target && isCalendarGroup(target) && !(await calendarService.hasCalendarNamed(target))) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `"${target}" is a group of calendars, not a calendar: name the calendar to create the event in.\n\nFix: Use list_calendars to see the calendars.`,
+              },
+            ],
+            isError: true,
+          };
+        }
 
         // Build iCalendar string with timezone
         const iCalString = buildICalString({

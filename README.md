@@ -130,7 +130,7 @@ The server is configured through environment variables, usually set in your MCP 
 
 | Variable | Description | Default |
 |---|---|---|
-| `DAV_DEFAULT_CALENDAR` | Calendar used when the assistant does not name one (`"all"` in a tool call still searches every calendar) | all calendars |
+| `DAV_DEFAULT_CALENDAR` | Calendar used when the assistant does not name one; a group of calendars works too (see [Your calendars and the ones shared with you](#your-calendars-and-the-ones-shared-with-you)) | all calendars |
 | `DAV_DEFAULT_ADDRESSBOOK` | Address book used by default | all address books |
 | `DAV_ORGANIZER_EMAIL` / `DAV_ORGANIZER_NAME` | Organizer written in events that have attendees; your address as an attendee for `list_invitations` and `respond_to_invitation` (required with an SSO token) | none |
 | `DAV_RECURRING_WRITES` | `false` = `update_event` / `delete_event` refuse recurring series and occurrences | `true` |
@@ -173,6 +173,39 @@ DAV_DEFAULT_CALENDAR="Jane Doe"
 ```
 
 Without `DAV_HREF_PREFIX`, discovery fails with `cannot find homeUrl` or calendars come back empty.
+
+#### Your calendars and the ones shared with you
+
+An account often sees more than its own calendars: colleagues share theirs, read-only or with write access. `list_calendars` groups them, from the `DAV:current-user-privilege-set` and `DAV:owner` properties of RFC 3744 and from `DAV:share-access`, which the CalDAV sharing extension (`draft-pot-webdav-resource-sharing`) adds:
+
+```text
+Available calendars (15): 2 yours, 3 shared with write access, 10 read-only
+
+My calendars (2): …
+Shared with write access (3): …
+Read-only (10): …
+```
+
+The query tools take the name of a group, so an assistant asked "what's on my calendar?" does not list other people's meetings:
+
+```text
+get_todays_schedule(calendar: "mine")         # the calendars you own
+get_todays_schedule(calendar: "writable")     # every calendar you may write to, your own included
+get_todays_schedule(calendar: "shared-write") # somebody else's calendars shared with write access
+get_todays_schedule(calendar: "read-only")    # where you may only read: shared read-only, or your own
+```
+
+A group can also be the default calendar (`DAV_DEFAULT_CALENDAR=mine`): an assistant then reads the calendars you own unless it names another calendar. `calendar: "all"` follows that default — an assistant sends "all" on its own, and a user who configured a default did not ask for every calendar — and `DAV_DEFAULT_CALENDAR=all` means no default at all, every calendar being read only when none is configured. A name still targets one calendar — a calendar that really is called `mine` keeps its own name.
+
+`create_event` needs a calendar name when the default is a group, since creating an event in several calendars at once has no meaning. The tools that find an event by UID — `update_event`, `delete_event`, `add_alarm`, `remove_alarm` — search the calendars of that group.
+
+The rights come from three properties:
+
+- `DAV:current-user-privilege-set` says whether the account may write: without `DAV:write`, `DAV:write-content` or `DAV:all`, the calendar is read-only;
+- `DAV:share-access`, when the server publishes it, says that a calendar is shared with the account, and with which access — it wins over the privileges, and it is what tells a colleague's calendar shared with write access from one you own (SabreDAV names the receiving account as its owner);
+- `DAV:owner` separates your own calendars from somebody else's shared with write access, on servers that do not publish the sharing.
+
+A server that publishes none of them gets the plain list, and asking for a group then says so instead of answering "No calendar with…": name a calendar, or use `"all"`. Calendars whose rights the server gives for some of them only are listed apart, under *Access rights unknown*.
 
 ## Use it with your assistant
 
@@ -272,7 +305,7 @@ Event descriptions and contact notes may be written by third parties (prompt inj
 | `401 Unauthorized` | Check the credentials; with a token, check that it is valid and not expired. |
 | `URL must use HTTPS` | Use `https://` (HTTP is only accepted for `localhost` / `127.0.0.1`). |
 | `cannot find homeUrl` / empty calendars | The server sits behind a path prefix: set `DAV_HREF_PREFIX` (e.g. `/dav`). |
-| `Event not found` on update or delete | Pass the calendar name, or `calendar: "all"`. |
+| `Event not found` on update or delete | Pass the calendar name. `calendar: "all"` follows `DAV_DEFAULT_CALENDAR` when one is set, so naming it does not widen the search. |
 | No calendars or address books | Check the account's permissions in the server's web interface. |
 | Tools missing in the client | Restart the client after editing its configuration; check that `npx` is in the `PATH`. |
 

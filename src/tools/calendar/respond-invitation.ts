@@ -35,7 +35,7 @@ export function registerRespondInvitationTool(
     '"Do you want to accept/decline/mark tentative for this invitation?"',
     {
       uid: z.string().describe('The UID of the invitation to respond to. Use list_invitations to find UIDs.'),
-      calendar: z.string().optional().describe('Calendar holding the invitation (default: the default calendar, then all calendars).'),
+      calendar: z.string().optional().describe('Calendar holding the invitation, or "all" (the default calendar when one is set, otherwise every calendar).'),
       response: z.enum(['accept', 'decline', 'tentative']).describe(
         'Your response: "accept" confirms attendance, "decline" refuses, "tentative" indicates uncertainty'
       ),
@@ -71,13 +71,14 @@ export function registerRespondInvitationTool(
 
         // The event in the user's calendar, found by its UID on the server (an answer changes this
         // event; the server sends the REPLY to the organizer)
+        const searched = calendarService.resolveCalendarName(params.calendar);
         const invitation = await calendarService.findInvitation(params.uid, params.calendar);
 
         if (!invitation) {
           return {
             content: [{
               type: 'text' as const,
-              text: `No invitation for you with UID: ${params.uid}\n\nUse list_invitations to see pending invitations and their UIDs.`,
+              text: `No invitation for you with UID: ${params.uid}${searched ? ` in the calendar "${searched}"` : ' in any calendar'}\n\nUse list_invitations to see pending invitations and their UIDs.`,
             }],
             isError: true,
           };
