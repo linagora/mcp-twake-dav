@@ -77,7 +77,17 @@ Used together, they let one assistant prepare a meeting from the invitation, the
 
 ## Installation
 
-**Interactive setup (recommended):**
+### Quick start with mcp-twake-ai (recommended)
+
+```bash
+npx mcp-twake-ai setup
+```
+
+[mcp-twake-ai](https://github.com/linagora/mcp-twake-wizard) sets up this server and the other Twake.ai MCP servers for your Twake.ai account: it asks for your email, signs you in at the Twake.ai identity provider (in the browser, or with a code over SSH), and finds the agents on your computer (Claude Code, Hermes, Claude Desktop, Cursor, VS Code) and the services of your account. It then installs pinned versions of the servers, writes their entries in each agent's configuration and checks that each server starts. For any other agent, `mcp-twake-ai export --agent <id>` writes the configuration files.
+
+### Manual installation
+
+**Interactive setup of this server only:**
 
 ```bash
 npx mcp-twake-dav setup
@@ -113,7 +123,7 @@ The server is configured through environment variables, usually set in your MCP 
 | **ESNToken** (OpenPaaS) | `DAV_URL`, `DAV_AUTH_METHOD=esntoken`, `DAV_TOKEN` |
 | **Token command** | `DAV_URL`, `DAV_AUTH_METHOD=command`, `DAV_TOKEN_COMMAND` |
 
-- With **token command**, the server runs `DAV_TOKEN_COMMAND` to get an access token, either raw on stdout or as JSON `{"access_token": "...", "expires_at": <epoch seconds>}`, and refreshes it before every call. A single broker you control can then own the OIDC grant for several tools.
+- With **token command**, the server runs `DAV_TOKEN_COMMAND` to get an access token, either raw on stdout or as JSON `{"access_token": "...", "expires_at": <epoch seconds>}`, and refreshes it before every call. A single broker you control can then own the OIDC grant for several tools. For Twake.ai, [mcp-twake-ai](https://github.com/linagora/mcp-twake-wizard) is that broker: `mcp-twake-ai token dav`. Give the command with an absolute path, as some MCP clients do not see your `PATH`. It runs through the system shell (`sh`, or `cmd.exe` on Windows, where paths go in double quotes).
 - `DAV_CREDENTIALS_FILE` points to a file holding `DAV_USERNAME=…`, `DAV_PASSWORD=…` or `DAV_TOKEN=…` lines, so secrets stay out of the MCP client configuration.
 
 ### Other options
@@ -157,7 +167,7 @@ Twake Calendar publishes its SabreDAV endpoint under `/dav/` and accepts OIDC Be
 DAV_URL=https://calendar.example.com/dav/
 DAV_HREF_PREFIX=/dav
 DAV_AUTH_METHOD=command
-DAV_TOKEN_COMMAND="/usr/local/bin/my-token-broker token"
+DAV_TOKEN_COMMAND="/usr/local/bin/mcp-twake-ai token dav"
 DAV_ORGANIZER_EMAIL=jane.doe@example.com
 DAV_DEFAULT_CALENDAR="Jane Doe"
 ```
@@ -210,7 +220,7 @@ mcp_servers:
       DAV_URL: https://calendar.example.com/dav/
       DAV_HREF_PREFIX: /dav
       DAV_AUTH_METHOD: command
-      DAV_TOKEN_COMMAND: /usr/local/bin/my-token-broker token
+      DAV_TOKEN_COMMAND: /usr/local/bin/mcp-twake-ai token dav
       DAV_ORGANIZER_EMAIL: jane.doe@example.com
       DAV_RECURRING_WRITES: "false"
       DAV_APPROVAL_TIMEOUT_MS: "330000"
