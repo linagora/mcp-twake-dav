@@ -373,9 +373,10 @@ describe('calendar access rights', () => {
 
   it.each([
     ['all', 'all'],
+    ['ALL', 'ALL'],
     ['blank', '  '],
     ['absent', undefined],
-  ])('makes the tools by UID search the default calendar for "all", and say where they looked', async (_case, calendar) => {
+  ])('makes the tools by UID search the default calendar when the name is %s, and say where they looked', async (_case, calendar) => {
     const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_DEFAULT_CALENDAR: 'mine', DAV_APPROVAL: 'client' } as Config;
     const clients = await createDualClients(config, logger);
     const service = new CalendarService(clients.caldav, logger, config);
@@ -396,7 +397,7 @@ describe('calendar access rights', () => {
       dav.requests.length = 0;
       const answer = await scoped.callTool({ name: tool, arguments: { ...arguments_, ...(calendar === undefined ? {} : { calendar }) } });
       const text = (answer.content as Array<{ text: string }>).map((content) => content.text).join('\n');
-      expect(text, `${tool} "${_case}"`).toContain('in the calendar "mine"');
+      expect(text, `${tool} with ${_case}`).toContain('in the calendar "mine"');
       const queried = dav.requests.filter((request) => request.method === 'REPORT').map((request) => request.url);
       expect(queried.every((url) => !url.includes('/Team/') && !url.includes('/Shared/')), tool).toBe(true);
     }

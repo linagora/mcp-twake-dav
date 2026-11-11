@@ -6,6 +6,7 @@ All notable changes to mcp-twake-dav are documented here. The format follows [Ke
 
 ### Changed
 
+- The four tools that find an event by UID (`update_event`, `delete_event`, `add_alarm`, `remove_alarm`) read `calendar: "all"` as the default calendar when one is set: in 4.2.1 they searched every calendar.
 - Two invitation tools now follow `DAV_DEFAULT_CALENDAR` as the reading tools already did: `list_invitations(calendar: "all")` searched every calendar in 4.2.1, and `respond_to_invitation` without a calendar did too. Both read the default calendar when one is set, and every calendar otherwise.
 
 ### Added
