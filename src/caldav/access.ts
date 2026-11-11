@@ -66,6 +66,29 @@ export function privilegeNames(privilegeSet: unknown): string[] {
 }
 
 /**
+ * The access a calendar was shared with, when the server publishes it
+ *
+ * `DAV:share-access` (the CalDAV sharing extension, also on SabreDAV) answers `read` or
+ * `read-write` for a calendar somebody shares with the account, and nothing for its own.
+ * It is the only reliable signal there: such a server answers the receiving account as
+ * `DAV:owner`, so the owner alone cannot tell a calendar shared with write access from
+ * one the account owns.
+ *
+ * @param props - the properties of one calendar, as tsdav parses them
+ * @returns the sharing access, or undefined when the server says nothing
+ */
+export function shareAccess(props: Record<string, unknown> | undefined): 'read' | 'read-write' | undefined {
+  if (!props) return undefined;
+  for (const [key, value] of Object.entries(props)) {
+    if (!/share-?access$/i.test(key.replace(/^\{[^}]*\}/, ''))) continue;
+    const inner = Object.keys((value ?? {}) as Record<string, unknown>).map((name) => name.toLowerCase().replace(/[-_]/g, ''));
+    if (inner.includes('readwrite')) return 'read-write';
+    if (inner.includes('read')) return 'read';
+  }
+  return undefined;
+}
+
+/**
  * Put a calendar in one of the three groups
  *
  * A calendar the account cannot write to is read-only, whoever owns it: some servers
@@ -78,8 +101,16 @@ export function privilegeNames(privilegeSet: unknown): string[] {
  * @returns "read" without a write privilege, else "mine" when the account owns the
  *   calendar, or "write" when it is somebody else's calendar shared with write access
  */
-export function classifyAccess(owner: string | undefined, principal: string | undefined, privileges: string[]): CalendarAccess {
+export function classifyAccess(
+  owner: string | undefined,
+  principal: string | undefined,
+  privileges: string[],
+  shared: 'read' | 'read-write' | undefined = undefined
+): CalendarAccess {
   if (!privileges.some((name) => WRITE_PRIVILEGES.has(name))) return 'read';
+  // a calendar the server describes as shared was not owned by the account, whoever DAV:owner names
+  if (shared === 'read') return 'read';
+  if (shared === 'read-write') return 'write';
   return !owner || !principal || samePrincipal(owner, principal) ? 'mine' : 'write';
 }
 
@@ -133,7 +164,7 @@ export async function discoverCalendarAccess(
     const privileges = privilegeNames(response.props?.currentUserPrivilegeSet);
     if (privileges.length === 0) continue; // the server does not tell, or this response is not a calendar
     const owner = (response.props?.owner as { href?: string } | undefined)?.href;
-    const entry: CalendarSharing = { access: classifyAccess(owner, principal, privileges), ...(owner ? { owner } : {}) };
+    const entry: CalendarSharing = { access: classifyAccess(owner, principal, privileges, shareAccess(response.props)), ...(owner ? { owner } : {}) };
     if (response.href) sharing.set(calendarKey(response.href), entry);
     const name = response.props?.displayname;
     if (typeof name === 'string' && name && names.get(name.toLowerCase()) === 1) sharing.set(`name:${name.toLowerCase()}`, entry);

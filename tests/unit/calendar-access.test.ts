@@ -4,11 +4,16 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import pino from 'pino';
+import { CalendarService } from '../../src/caldav/calendar-service.js';
+import type { Config } from '../../src/config/schema.js';
+import type { DAVClientType } from '../../src/caldav/client.js';
 import {
   calendarKey,
   classifyAccess,
   privilegeNames,
   samePrincipal,
+  shareAccess,
 } from '../../src/caldav/access.js';
 
 const READ_ONLY = ['read', 'readacl', 'readcurrentuserprivilegeset', 'readfreebusy', 'writeproperties'];
@@ -42,6 +47,13 @@ describe('classifyAccess', () => {
     expect(classifyAccess('/principals/users/team/', '/principals/users/alice/', ['read', 'all'])).toBe('write');
   });
 
+  it('trusts the sharing access a server publishes', () => {
+    // SabreDAV answers the receiving account as the owner of a calendar shared with it
+    expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', WRITABLE, 'read-write')).toBe('write');
+    expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', WRITABLE, 'read')).toBe('read');
+    expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', WRITABLE)).toBe('mine');
+  });
+
   it('does not mistake write-properties for write access', () => {
     expect(classifyAccess('/principals/users/alice/', '/principals/users/alice/', ['read', 'writeproperties'])).toBe('read');
   });
@@ -62,6 +74,18 @@ describe('privilegeNames', () => {
   });
 });
 
+describe('shareAccess', () => {
+  it('reads the sharing access of a calendar', () => {
+    expect(shareAccess({ '{DAV:}shareAccess': { 'read-write': {} } })).toBe('read-write');
+    expect(shareAccess({ shareAccess: { read: {} } })).toBe('read');
+  });
+
+  it('says nothing when the server does not publish it', () => {
+    expect(shareAccess(undefined)).toBeUndefined();
+    expect(shareAccess({ displayname: 'XG' })).toBeUndefined();
+  });
+});
+
 describe('calendarKey and samePrincipal', () => {
   it('gives one key to an URL, to its href and to its encoded form', () => {
     const url = 'https://dav.example.com/dav/calendars/u1/My%20Calendar/';
@@ -73,5 +97,44 @@ describe('calendarKey and samePrincipal', () => {
     expect(samePrincipal('/principals/users/alice/', '/principals/users/alice')).toBe(true);
     expect(samePrincipal('/principals/users/alice/', '/principals/users/bob/')).toBe(false);
     expect(samePrincipal(undefined, '/principals/users/alice/')).toBe(false);
+  });
+});
+
+describe('CalendarService: the first discovery', () => {
+  const logger = pino({ level: 'silent' });
+
+  it('makes a second tool call wait for the access rights', async () => {
+    // the calendars are known, their rights are still on the wire: a tool call arriving
+    // now must wait for them instead of seeing a calendar set without any rights
+    const calendars = [{ url: 'https://dav.example.com/calendars/u1/XG/', displayName: 'XG' }];
+    let answer: (value: unknown) => void = () => undefined;
+    const pending = new Promise((resolve) => {
+      answer = resolve;
+    });
+    const client = {
+      fetchCalendars: async () => calendars,
+      propfind: () => pending,
+      fetchCalendarObjects: async () => [],
+    } as unknown as DAVClientType;
+
+    const service = new CalendarService(client, logger, {} as Config);
+    const first = service.listCalendars();
+    await new Promise((resolve) => setImmediate(resolve));
+    const second = service.fetchEventsByAccess('mine');
+
+    answer([
+      {
+        href: '/calendars/u1/XG/',
+        props: {
+          displayname: 'XG',
+          owner: { href: '/principals/u1/' },
+          currentUserPrincipal: { href: '/principals/u1/' },
+          currentUserPrivilegeSet: { privilege: [{ read: {} }, { write: {} }, { writeContent: {} }] },
+        },
+      },
+    ]);
+
+    await expect(Promise.all([first, second])).resolves.toBeDefined();
+    expect(service.calendarAccess(calendars[0])).toBe('mine');
   });
 });

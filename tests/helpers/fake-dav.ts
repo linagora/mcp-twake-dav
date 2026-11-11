@@ -28,6 +28,8 @@ export interface FakeDavOptions {
   sharedWithWrite?: string[];
   /** A server without ACL support: answers no owner and no privilege */
   withoutAccessRights?: boolean;
+  /** Calendars somebody shares with the account, and with which access (DAV:share-access) */
+  shareAccess?: Record<string, 'read' | 'read-write'>;
 }
 
 const PRINCIPAL = '<d:href>/principals/u1/</d:href>';
@@ -39,7 +41,9 @@ function accessProps(name: string, options: FakeDavOptions): string {
   const privileges = options.readOnly?.includes(name)
     ? '<d:privilege><d:read/></d:privilege><d:privilege><d:read-free-busy/></d:privilege>'
     : '<d:privilege><d:read/></d:privilege><d:privilege><d:write/></d:privilege><d:privilege><d:write-content/></d:privilege>';
-  return `<d:owner>${owner}</d:owner><d:current-user-principal>${PRINCIPAL}</d:current-user-principal><d:current-user-privilege-set>${privileges}</d:current-user-privilege-set>`;
+  const shared = options.shareAccess?.[name];
+  const shareAccessProp = shared ? `<d:share-access><d:${shared}/></d:share-access>` : '';
+  return `<d:owner>${owner}</d:owner><d:current-user-principal>${PRINCIPAL}</d:current-user-principal><d:current-user-privilege-set>${privileges}</d:current-user-privilege-set>${shareAccessProp}`;
 }
 const XML = { 'content-type': 'application/xml; charset=utf-8' };
 const NS = 'xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:card="urn:ietf:params:xml:ns:carddav" xmlns:cs="http://calendarserver.org/ns/"';

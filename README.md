@@ -195,7 +195,9 @@ get_todays_schedule(calendar: "shared-write") # somebody else's calendars shared
 get_todays_schedule(calendar: "read-only")    # only the ones shared with you for reading
 ```
 
-`calendar: "all"` still queries everything, and a name still targets one calendar. A server that does not publish these properties gets the plain list, and the group names are refused as unknown calendars.
+`calendar: "all"` still queries everything, and a name still targets one calendar — a calendar that really is called `mine` keeps its own name. The groups also work as `DAV_DEFAULT_CALENDAR`, so an assistant reads your agenda unless you ask for another calendar.
+
+The rights come from `DAV:current-user-privilege-set`, from `DAV:share-access` when the server publishes it (a calendar shared with write access, which SabreDAV still names the account as owning), and from `DAV:owner` to tell your own calendars from the ones shared with write access. A server that publishes none of them gets the plain list, and asking for a group then says so instead of answering "No calendar with…": name a calendar, or use `"all"`.
 
 ## Use it with your assistant
 

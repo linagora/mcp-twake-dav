@@ -101,6 +101,22 @@ describe('calendar access rights', () => {
     expect(await call('get_todays_schedule', { calendar: 'Team' })).toContain('Event of Team');
   });
 
+  it('puts a calendar shared with write access in "write", even when the server names the account as its owner', async () => {
+    const shared = await startFakeDav(['Perso', 'Friend'], { shareAccess: { Friend: 'read-write' } });
+    try {
+      const config = { DAV_URL: shared.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      const calendars = await service.listCalendars();
+      const friend = calendars.find((calendar) => calendar.displayName === 'Friend')!;
+      expect(service.calendarAccess(friend)).toBe('write');
+      expect(service.calendarAccess(calendars.find((calendar) => calendar.displayName === 'Perso')!)).toBe('mine');
+    } finally {
+      await shared.close();
+    }
+  });
+
   it('waits for the access rights when two tools are called at once', async () => {
     // a fresh service, as when an assistant calls list_calendars and get_todays_schedule together
     const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
