@@ -14,6 +14,7 @@ import {
   getStartOfDay,
   getEndOfDay,
   resolveCalendarEvents,
+  calendarParamDescription,
   paginationParams,
   checkWindow,
   pageWindow,
@@ -38,13 +39,10 @@ export function registerTodaysScheduleTool(
 ): void {
   server.tool(
     'get_todays_schedule',
-    'Get the events scheduled for today, sorted by time, one page at a time. When the response has a nextCursor, more events remain. Optionally filter by calendar name, or use "all" to search all calendars.',
+    'Get the events scheduled for today, sorted by time, one page at a time. When the response has a nextCursor, more events remain. Optionally filter by calendar name, or use "all" — the default calendar when one is configured, every calendar otherwise.',
     {
       ...paginationParams,
-      calendar: z.string().optional().describe(
-        'Calendar name to search in. Use "all" to search all calendars. ' +
-        (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to all calendars.')
-      ),
+      calendar: z.string().optional().describe(calendarParamDescription(defaultCalendar)),
     },
     {
       readOnlyHint: true,

@@ -12,6 +12,7 @@ import {
   getEventsWithRecurrenceExpansion,
   formatEvent,
   resolveCalendarEvents,
+  calendarParamDescription,
 } from './utils.js';
 
 /**
@@ -30,12 +31,9 @@ export function registerNextEventTool(
 ): void {
   server.tool(
     'get_next_event',
-    'Get the next upcoming calendar event. Returns the soonest event. Optionally filter by calendar name, or use "all" to search all calendars.',
+    'Get the next upcoming calendar event. Returns the soonest event. Optionally filter by calendar name, or use "all" — the default calendar when one is configured, every calendar otherwise.',
     {
-      calendar: z.string().optional().describe(
-        'Calendar name to search in. Use "all" to search all calendars. ' +
-        (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to all calendars.')
-      ),
+      calendar: z.string().optional().describe(calendarParamDescription(defaultCalendar)),
     },
     {
       readOnlyHint: true,

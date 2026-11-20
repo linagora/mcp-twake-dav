@@ -16,6 +16,7 @@ import * as chrono from 'chrono-node';
 import {
   resolveCalendarEvents,
   expandEvents,
+  calendarParamDescription,
   computeBusyPeriods,
   checkWindow,
   formatAllDaySpan,
@@ -110,10 +111,7 @@ export function registerCheckAvailabilityTool(
       all_day_busy: z.boolean().optional().describe(
         'Count all-day events as busy for their whole days (default false: they are listed apart).'
       ),
-      calendar: z.string().optional().describe(
-        'Calendar name to check. Use "all" to check all calendars. ' +
-        (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to all calendars.')
-      ),
+      calendar: z.string().optional().describe(calendarParamDescription(defaultCalendar)),
     },
     {
       readOnlyHint: true,
