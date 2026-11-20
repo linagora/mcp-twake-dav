@@ -311,4 +311,31 @@ describe('approve_batch', () => {
     expect(await again('create_note', { title: 'A', batchId })).toContain('no such batch');
     expect(t.writes).toEqual([]);
   });
+
+  it('pre-approves only one of two parallel calls with the same batch and arguments', async () => {
+    const t = await setup(['accept', 'decline']);
+    const { batchId } = await t.batchOf([{ tool: 'create_note', arguments: { title: 'A' } }]);
+    const results = await Promise.all([t.call('create_note', { title: 'A', batchId }), t.call('create_note', { title: 'A', batchId })]);
+    expect(results.map((r) => r.text.split('\n')[0]).sort()).toEqual(['Not done', 'created']);
+    expect(t.asked).toHaveLength(2);
+    expect(t.writes).toEqual(['create A']);
+  });
+
+  it('compares again the text of an action given back after a mismatch, in the call that writes', async () => {
+    const changed = new Set<string>(['A']);
+    const t = await setup(['accept', 'decline', 'decline'], { changed });
+    changed.delete('A');
+    const { batchId } = await t.batchOf([{ tool: 'create_note', arguments: { title: 'A' } }]);
+    changed.add('A');
+    // mismatch: asks (declined), the action is given back
+    expect((await t.call('create_note', { title: 'A', batchId })).text).toContain('Not done');
+    // still changed: the given-back action is compared again, and asks again
+    expect((await t.call('create_note', { title: 'A', batchId })).text).toContain('Not done');
+    expect(t.asked).toHaveLength(3);
+    // back to what was approved: the text computed by this call matches, it runs without a question
+    changed.delete('A');
+    expect((await t.call('create_note', { title: 'A', batchId })).text).toBe('created');
+    expect(t.asked).toHaveLength(3);
+    expect(t.writes).toEqual(['create A']);
+  });
 });
