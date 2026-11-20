@@ -106,7 +106,7 @@ describe('approve_batch', () => {
     expect(b.batchId, b.text).toBeDefined();
     expect(t.prompts).toHaveLength(1);
     expect(t.prompts[0]).toContain('2 actions');
-    expect(t.prompts[0]).toContain('1. Twake Calendar : Créer un événement');
+    expect(t.prompts[0]).toContain('[1/2] Twake Calendar : Créer un événement');
     expect(t.prompts[0]).toContain('Titre : Point budget 2');
     expect(t.writes).toEqual([]);
     expect((await t.call('create_event', { ...WRITES[0][1], batchId: b.batchId })).isError).toBe(false);

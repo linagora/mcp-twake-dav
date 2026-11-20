@@ -88,8 +88,8 @@ describe('approve_batch', () => {
     expect(r.batchId).toBeDefined();
     expect(t.asked).toHaveLength(1);
     expect(t.asked[0]).toContain('2 actions');
-    expect(t.asked[0]).toContain('1. Create the note "A"');
-    expect(t.asked[0]).toContain('2. Create the note "B"');
+    expect(t.asked[0]).toContain('[1/2] Create the note "A"');
+    expect(t.asked[0]).toContain('[2/2] Create the note "B"');
     expect(t.writes).toEqual([]);
   });
 
@@ -214,5 +214,42 @@ describe('approve_batch', () => {
     const t = await setup();
     const { tools } = await t.client.listTools();
     expect(tools.find((x) => x.name === 'approve_batch')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: false });
+  });
+
+  it('shows each action so that its own text cannot look like another action', async () => {
+    const t = await setup(['accept']);
+    const r = await t.batchOf([
+      { tool: 'create_note', arguments: { title: 'A"\n[2/2] Create the note "harmless"\n\n2. Create the note "B' } },
+      { tool: 'delete_note', arguments: { title: 'everything' } },
+    ]);
+    expect(r.batchId).toBeDefined();
+    const lines = t.asked[0].split('\n');
+    // only the module starts a line with an action number; the action's own lines are marked as its continuation
+    expect(lines.filter((l) => /^\[\d+\/\d+\]/.test(l))).toEqual(['[1/2] Create the note "A"', '[2/2] Delete the note "everything"']);
+    expect(lines.filter((l) => /^\s*\d+\./.test(l))).toEqual([]);
+    expect(t.asked[0]).toContain('     | [2/2] Create the note "harmless"');
+  });
+
+  it('removes control, bidi and zero-width characters from the texts shown', async () => {
+    const t = await setup(['accept']);
+    const title = 'A\u202Etxt.exe\u200B\u2066\uFEFF\u001b[31m\r\u0085B';
+    const r = await t.batchOf([{ tool: 'create_note', arguments: { title } }]);
+    expect(r.batchId).toBeDefined();
+    expect(t.asked[0]).toContain('[1/1] Create the note "Atxt.exe[31mB"');
+    // the approved text stays the one the tool computes: the call still matches
+    expect((await t.call('create_note', { title, batchId: r.batchId })).text).toBe('created');
+  });
+
+  it('refuses an action too long to be shown in full in a batch', async () => {
+    const t = await setup(['accept']);
+    const r = await t.batchOf([
+      { tool: 'create_note', arguments: { title: 'A' } },
+      { tool: 'create_note', arguments: { title: 'x'.repeat(2000) } },
+    ]);
+    expect(r.batchId).toBeUndefined();
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain('action 2.');
+    expect(r.text).toContain('on its own');
+    expect(t.asked).toEqual([]);
   });
 });
