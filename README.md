@@ -195,7 +195,7 @@ get_todays_schedule(calendar: "shared-write") # somebody else's calendars shared
 get_todays_schedule(calendar: "read-only")    # where you may only read: shared read-only, or your own
 ```
 
-A group can also be the default calendar (`DAV_DEFAULT_CALENDAR=mine`): an assistant then reads the calendars you own unless you ask for another one, and `calendar: "all"` follows that default as any other name does. `DAV_DEFAULT_CALENDAR=all` means no default at all. A name still targets one calendar — a calendar that really is called `mine` keeps its own name.
+A group can also be the default calendar (`DAV_DEFAULT_CALENDAR=mine`): an assistant then reads the calendars you own unless it names another calendar. `calendar: "all"` follows that default — an assistant sends "all" on its own, and a user who configured a default did not ask for every calendar — and `DAV_DEFAULT_CALENDAR=all` means no default at all, every calendar being read only when none is configured. A name still targets one calendar — a calendar that really is called `mine` keeps its own name.
 
 `create_event` needs a calendar name when the default is a group, since creating an event in several calendars at once has no meaning. The tools that find an event by UID — `update_event`, `delete_event`, `add_alarm`, `remove_alarm` — search the calendars of that group.
 
@@ -307,7 +307,7 @@ Event descriptions and contact notes may be written by third parties (prompt inj
 | `401 Unauthorized` | Check the credentials; with a token, check that it is valid and not expired. |
 | `URL must use HTTPS` | Use `https://` (HTTP is only accepted for `localhost` / `127.0.0.1`). |
 | `cannot find homeUrl` / empty calendars | The server sits behind a path prefix: set `DAV_HREF_PREFIX` (e.g. `/dav`). |
-| `Event not found` on update or delete | Pass the calendar name, or `calendar: "all"`. |
+| `Event not found` on update or delete | Pass the calendar name. `calendar: "all"` follows `DAV_DEFAULT_CALENDAR` when one is set, so naming it does not widen the search. |
 | No calendars or address books | Check the account's permissions in the server's web interface. |
 | Tools missing in the client | Restart the client after editing its configuration; check that `npx` is in the `PATH`. |
 

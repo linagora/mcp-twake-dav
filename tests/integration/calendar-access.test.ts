@@ -175,7 +175,7 @@ describe('calendar access rights', () => {
       const service = new CalendarService(clients.caldav, logger, config);
 
       expect(service.calendarAccess((await service.listCalendars())[0])).toBeUndefined();
-      await expect(service.fetchEventsByAccess('mine')).rejects.toThrow(/does not publish the access rights[\s\S]*name a calendar or use "all"/);
+      await expect(service.fetchEventsByAccess('mine')).rejects.toThrow(/does not publish the access rights[\s\S]*name a calendar\./);
     } finally {
       await blind.close();
     }
@@ -499,6 +499,90 @@ describe('calendar access rights', () => {
     } finally {
       await named.close();
     }
+  });
+
+  it('reads "all" the same way in every tool: the default calendar when one is set', async () => {
+    // the account shares nothing here, so "mine" holds Perso only
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_DEFAULT_CALENDAR: 'mine', DAV_ORGANIZER_EMAIL: 'u@example.com' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+    const server = createServer(service, new AddressBookService(clients.carddav, logger), logger, 'mine');
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+    await scoped.connect(clientTransport);
+
+    for (const name of ['all', 'ALL', ' All ']) {
+      // a query tool: the default calendar, not the colleague's
+      const answer = await scoped.callTool({ name: 'get_todays_schedule', arguments: { calendar: name } });
+      const text = (answer.content as Array<{ text: string }>).map((content) => content.text).join('\n');
+      expect(text, name).toContain('Event of Perso');
+      expect(text, name).not.toContain('Event of Team');
+      expect(text, name).not.toContain('not found');
+
+      // and a tool that finds an event by UID searches the same calendars
+      dav.requests.length = 0;
+      await service.findInvitation('a', name).catch(() => null);
+      const queried = dav.requests.filter((request) => request.method === 'REPORT').map((request) => request.url);
+      expect(queried.length, name).toBeGreaterThan(0);
+      expect(queried.every((url) => !url.includes('/Shared/') && !url.includes('/Team/')), name).toBe(true);
+    }
+
+    await scoped.close();
+  });
+
+  it.each([
+    ['all', 'all'],
+    ['ALL', 'ALL'],
+    ['blank', '  '],
+    ['absent', undefined],
+  ])('makes the tools by UID search the default calendar when the name is %s, and say where they looked', async (_case, calendar) => {
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_DEFAULT_CALENDAR: 'mine', DAV_APPROVAL: 'client' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+    const server = createServer(service, new AddressBookService(clients.carddav, logger), logger, 'mine', undefined, undefined, { DAV_APPROVAL: 'client' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+    await scoped.connect(clientTransport);
+
+    // the event lives in the team calendar only: "all", a blank name and no name all read "mine",
+    // so it is not found, and the message says where it looked
+    for (const [tool, arguments_] of [
+      ['update_event', { uid: 'Team', title: 'Point' }],
+      ['delete_event', { uid: 'Team' }],
+      ['add_alarm', { uid: 'Team', trigger: '15 minutes' }],
+      ['remove_alarm', { uid: 'Team', alarmIndex: 'all' }],
+    ] as const) {
+      dav.requests.length = 0;
+      const answer = await scoped.callTool({ name: tool, arguments: { ...arguments_, ...(calendar === undefined ? {} : { calendar }) } });
+      const text = (answer.content as Array<{ text: string }>).map((content) => content.text).join('\n');
+      expect(text, `${tool} with ${_case}`).toContain('in the calendar "mine"');
+      const queried = dav.requests.filter((request) => request.method === 'REPORT').map((request) => request.url);
+      expect(queried.every((url) => !url.includes('/Team/') && !url.includes('/Shared/')), tool).toBe(true);
+    }
+
+    await scoped.close();
+  });
+
+  it('reads "all" as every calendar when no default calendar is set', async () => {
+    const text = await call('get_todays_schedule', { calendar: 'ALL' });
+    expect(text).toContain('Event of Perso');
+    expect(text).toContain('Event of Team');
+    expect(text).toContain('Event of Shared');
+  });
+
+  it('follows the default calendar in respond_to_invitation, like list_invitations', async () => {
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_DEFAULT_CALENDAR: 'mine', DAV_ORGANIZER_EMAIL: 'u@example.com' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+
+    dav.requests.length = 0;
+    await service.findInvitation('a').catch(() => null);
+    const queried = dav.requests.filter((request) => request.method === 'REPORT').map((request) => request.url);
+    // "mine" holds Perso only: the colleague's calendars are not asked
+    expect(queried.length).toBeGreaterThan(0);
+    expect(queried.every((url) => !url.includes('/Shared/') && !url.includes('/Team/'))).toBe(true);
   });
 
   it('does not take an odd calendar name for a group', async () => {

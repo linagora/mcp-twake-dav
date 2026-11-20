@@ -13,7 +13,7 @@ import { buildICalString } from '../../transformers/event-builder.js';
 import * as chrono from 'chrono-node';
 import { approverFor } from '../../approval.js';
 import { defaultCalendarText } from './utils.js';
-import { isCalendarGroup } from '../../caldav/access.js';
+import { isAllCalendars, isCalendarGroup } from '../../caldav/access.js';
 
 /**
  * Register the create_event tool
@@ -128,17 +128,17 @@ export function registerCreateEventTool(
           };
         }
 
-        // Resolve target calendar. "all" and a group name calendars, not one calendar: say so before
+        // Resolve target calendar. "all" and a group name several calendars, not one: say so before
         // asking for approval, rather than failing once the user has accepted the write. A calendar
         // that really carries one of those names keeps it.
         const resolvedCalendar = params.calendar || defaultCalendar;
         const target = resolvedCalendar?.trim();
-        if (target?.toLowerCase() === 'all') {
+        if (isAllCalendars(target)) {
           return {
             content: [
               {
                 type: 'text' as const,
-                text: '"all" means every calendar, not one: name the calendar to create the event in.\n\nFix: Use list_calendars to see the calendars.',
+                text: '"all" does not name a calendar: name the calendar to create the event in.\n\nFix: Use list_calendars to see the calendars.',
               },
             ],
             isError: true,

@@ -15,7 +15,7 @@ import type { Config } from '../config/schema.js';
 import { CollectionCache } from './cache.js';
 import { withRetry } from './retry.js';
 import { discoverCalendars, discoverSchedulingInbox } from './discovery.js';
-import { CALENDAR_GROUPS, calendarKey, discoverCalendarAccess, isCalendarGroup, type CalendarAccess, type CalendarSharing } from './access.js';
+import { CALENDAR_GROUPS, calendarKey, discoverCalendarAccess, isAllCalendars, isCalendarGroup, type CalendarAccess, type CalendarSharing } from './access.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictError, DavHttpError, isDavUnsupported } from '../errors.js';
 import { addReadWarning, hasPartialRead } from './dav-fetch.js';
@@ -329,7 +329,7 @@ export class CalendarService {
    */
   private calendarsFor(name: string | undefined): DAVCalendar[] {
     const wanted = name?.trim();
-    if (!wanted || wanted.toLowerCase() === 'all') return this.calendars;
+    if (!wanted || isAllCalendars(wanted)) return this.calendars;
     // a calendar that really carries the name keeps it, as in the query tools
     const named = this.calendars.filter((calendar) => String(calendar.displayName || '').toLowerCase() === wanted.toLowerCase());
     if (named.length > 0 || !isCalendarGroup(wanted)) return named;
@@ -347,7 +347,7 @@ export class CalendarService {
    */
   private noAccessCalendars(groups: CalendarAccess[]): Error {
     if (this.calendars.every((calendar) => this.calendarAccess(calendar) === undefined)) {
-      return new Error('This calendar server does not publish the access rights of its calendars, so a group cannot be queried.\n\nFix: Use list_calendars, then name a calendar or use "all".');
+      return new Error('This calendar server does not publish the access rights of its calendars, so a group cannot be queried.\n\nFix: Use list_calendars, then name a calendar.');
     }
     const described = groups
       .map((group) => (group === 'mine' ? 'you as owner' : group === 'write' ? 'write access shared by somebody else' : 'read-only access'))
@@ -597,6 +597,19 @@ export class CalendarService {
   }
 
   /**
+   * The calendar a call targets: a name as it comes, "all" and no name as the configured default
+   *
+   * The model sends "all" on its own, so "all" follows DAV_DEFAULT_CALENDAR when one is set (issue #4);
+   * without a default it means every calendar, which undefined stands for here.
+   */
+  resolveCalendarName(name?: string): string | undefined {
+    const wanted = name?.trim() || undefined;
+    if (wanted && !isAllCalendars(wanted)) return wanted;
+    const configured = this.config.DAV_DEFAULT_CALENDAR?.trim() || undefined;
+    return configured && !isAllCalendars(configured) ? configured : undefined;
+  }
+
+  /**
    * Find an event by UID across all calendars or a specific calendar
    *
    * @param uid - The UID of the event to find
@@ -761,8 +774,8 @@ export class CalendarService {
     const email = this.attendeeEmail();
     const range = timeRange ?? { start: new Date().toISOString(), end: new Date(Date.now() + 30 * 86400000).toISOString() };
     await this.listCalendars();
-    // "all" means every calendar; a name and a group are resolved by calendarsFor()
-    const wanted = calendarName === 'all' ? undefined : calendarName ?? this.config.DAV_DEFAULT_CALENDAR?.trim();
+    // "all" and no name mean the configured default calendar, when there is one
+    const wanted = this.resolveCalendarName(calendarName);
     const targets = this.calendarsFor(wanted);
     if (wanted && targets.length === 0) throw this.noCalendarFor(wanted);
     const icalTime = (iso: string) => `${new Date(iso).toISOString().slice(0, 19).replace(/[-:.]/g, '')}Z`;
@@ -807,7 +820,8 @@ export class CalendarService {
    */
   async findInvitation(uid: string, calendarName?: string): Promise<InvitationDTO | null> {
     const email = this.attendeeEmail();
-    const event = await this.findEventByUid(uid, calendarName === 'all' ? undefined : calendarName);
+    // "all", a name and a group read the same way as in list_invitations, default calendar included
+    const event = await this.findEventByUid(uid, this.resolveCalendarName(calendarName));
     if (!event?._raw || !event.url) return null;
     const invitation = transformInvitation({ href: event.url, props: { getetag: event.etag, calendarData: event._raw } }, email, this.logger);
     return invitation && invitation.isAttendee ? invitation : null;

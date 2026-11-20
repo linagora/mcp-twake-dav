@@ -17,7 +17,7 @@ import { z } from 'zod';
 import type { Logger } from 'pino';
 import type { DAVCalendarObject } from 'tsdav';
 import type { CalendarService, TimeRange } from '../../caldav/calendar-service.js';
-import { CALENDAR_GROUPS, isCalendarGroup } from '../../caldav/access.js';
+import { CALENDAR_GROUPS, isAllCalendars, isCalendarGroup } from '../../caldav/access.js';
 import type { EventDTO, FreeBusyPeriod } from '../../types/dtos.js';
 import { addReadWarning, hasPartialRead } from '../../caldav/dav-fetch.js';
 import { transformCalendarObject } from '../../transformers/event.js';
@@ -623,24 +623,17 @@ export async function resolveCalendarEvents(
   defaultCalendar: string | undefined,
   timeRange: TimeRange,
 ): Promise<DAVCalendarObject[]> {
-  // When a default calendar is configured, use it unless the user explicitly
-  // provides a different calendar name.  The LLM often sends "all" by default
-  // which would bypass the user's configured filter — ignore "all" when a
-  // default is set so only the user's own calendar is queried.
-  // a default calendar of "all" means no default at all
-  const configured = defaultCalendar?.trim().toLowerCase() === 'all' ? undefined : defaultCalendar;
-  const target = calendarParam === 'all'
-    ? configured
-    : (calendarParam || configured);
-  const wanted = target?.trim();
-  if (wanted) {
-    // A group of access rights rather than one name: "mine", "writable", "read-only". A calendar
-    // that actually carries one of those names keeps it.
-    const access = isCalendarGroup(wanted) ? CALENDAR_GROUPS[wanted.toLowerCase()] : undefined;
-    if (access && !(await calendarService.hasCalendarNamed(wanted))) return calendarService.fetchEventsByAccess(access, timeRange);
-    return calendarService.fetchEventsByCalendarName(wanted, timeRange);
-  }
-  return calendarService.fetchAllEvents(timeRange);
+  // "all", or nothing, means the configured default calendar when there is one: the model sends "all"
+  // on its own, and a user who configured a default did not ask for every calendar (issue #4)
+  const wanted = calendarParam?.trim() || undefined;
+  const configured = defaultCalendar?.trim() || undefined;
+  const target = !wanted || isAllCalendars(wanted) ? configured : wanted;
+  if (!target || isAllCalendars(target)) return calendarService.fetchAllEvents(timeRange);
+  // A group of access rights rather than one name: "mine", "writable", "read-only". A calendar that
+  // actually carries one of those names keeps it.
+  const access = isCalendarGroup(target) ? CALENDAR_GROUPS[target.toLowerCase()] : undefined;
+  if (access && !(await calendarService.hasCalendarNamed(target))) return calendarService.fetchEventsByAccess(access, timeRange);
+  return calendarService.fetchEventsByCalendarName(target, timeRange);
 }
 
 /**
@@ -653,7 +646,7 @@ export function calendarParamDescription(defaultCalendar?: string): string {
   const groups =
     'Also "mine" (the calendars you own), "writable" (every calendar you may write to, your own included), ' +
     '"shared-write" (somebody else\'s calendars shared with write access) or "read-only" (where you may only read), ' +
-    (defaultCalendar ? 'or "all" for every calendar, unless a default calendar is set, which "all" then follows. ' : 'or "all" for every calendar. ') +
+    'or "all" for every calendar — or for the default calendar, when one is configured. ' +
     'A server that does not publish access rights answers a name or "all" only. ';
   return 'Calendar name to search in. ' + groups + defaultCalendarText(defaultCalendar);
 }
