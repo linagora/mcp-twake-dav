@@ -108,6 +108,9 @@ describe('approve_batch', () => {
     expect(t.prompts[0]).toContain('2 actions');
     expect(t.prompts[0]).toContain('[1/2] Twake Calendar : Créer un événement');
     expect(t.prompts[0]).toContain('Titre : Point budget 2');
+    // one question for the list: no reference and no "do it now" footer per action
+    expect(t.prompts[0]).not.toContain('Réf. batch');
+    expect(t.prompts[0]).not.toContain('Acceptez pour le faire maintenant');
     expect(t.writes).toEqual([]);
     expect((await t.call('create_event', { ...WRITES[0][1], batchId: b.batchId })).isError).toBe(false);
     expect((await t.call('create_event', { ...second, batchId: b.batchId })).isError).toBe(false);
