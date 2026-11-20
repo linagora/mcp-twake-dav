@@ -272,6 +272,23 @@ Hermes shows the approval prompts in the desktop app, the terminal or on your me
 
 Any client that can launch a stdio MCP server works: command `npx`, arguments `-y mcp-twake-dav`, and the environment variables above.
 
+## From the command line
+
+Every tool of this server can be called from a terminal or a script, with the same configuration (`DAV_*` variables) as the server:
+
+```sh
+npx mcp-twake-dav tools                      # one line per tool
+npx mcp-twake-dav tools get_events_in_range  # its parameters
+npx mcp-twake-dav call get_events_in_range --arg when="next week" --arg calendar=mine
+npx mcp-twake-dav call create_event --json @event.json
+```
+
+- `--arg key=value` is converted to the type the tool gives `key`; `--json` takes the whole arguments object (`@file`, or `-` for stdin). The result goes to stdout (`--json-output` for the raw result), everything else to stderr.
+- Exit codes: 0 done, 1 the tool answered with an error, 2 wrong command or argument, 3 a write was not approved, 4 the server could not be reached.
+- **Writes:** typed by you in a terminal, a write is approved without a question (`--i` asks first). Started by an agent (`CLAUDECODE` or `HERMES_HOME` set), a write is refused: agents write through their MCP tools, which ask you. Without a terminal (cron), a write is refused unless it passes `--yes --as <name>` for a name you allowed once, in a terminal, with `npx mcp-twake-dav allow-unattended <name>`. The allowed names are shared by the six Twake.ai servers, in `~/.config/twake-ai/cli.json` (`%USERPROFILE%\AppData\Roaming\twake-ai\cli.json` on Windows).
+- These rules stop an agent that follows instructions; they cannot stop a program that hides that it is an agent, or rewrites `cli.json`, under your account.
+- With [mcp-twake-ai](https://github.com/linagora/mcp-twake-ai), `npx mcp-twake-ai call dav …` does the same with your Twake.ai sign-in.
+
 ## Recommended safe configuration
 
 Creating, moving or deleting an event with attendees makes the server **email them in your name**, and contact deletion is final (CardDAV has no trash). For an assistant that acts on its own:

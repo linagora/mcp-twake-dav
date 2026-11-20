@@ -62,5 +62,8 @@
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
   },
-  "author": "LINAGORA <https://linagora.com>"
+  "author": "LINAGORA <https://linagora.com>",
+  "twake": {
+    "commandLine": 1
+  }
 }

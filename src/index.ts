@@ -22,6 +22,8 @@ import { isAllCalendars } from './caldav/access.js';
 import { AddressBookService } from './caldav/addressbook-service.js';
 import { formatStartupError } from './errors.js';
 import { createServer } from './server.js';
+import { isCliCommand, runCliCommand } from './cli-call/index.js';
+import { fileURLToPath } from 'node:url';
 
 /**
  * Main entry point with full startup validation
@@ -81,9 +83,13 @@ async function main() {
   }
 }
 
-// CLI routing: `mcp-twake-dav setup` launches the wizard, otherwise starts the MCP server
+// CLI routing: `call`, `tools` and `allow-unattended` use the server from the command line, `setup` launches the wizard,
+// otherwise starts the MCP server
 const args = process.argv.slice(2);
-if (args[0] === 'setup') {
+if (isCliCommand(args)) {
+  // exitCode, not exit(): what was written on a piped stdout is flushed first
+  process.exitCode = await runCliCommand(args, { entry: fileURLToPath(import.meta.url) });
+} else if (args[0] === 'setup') {
   const { runSetup } = await import('./cli/setup.js');
   runSetup().catch((err) => {
     console.error('\nSetup failed:', err instanceof Error ? err.message : String(err));
