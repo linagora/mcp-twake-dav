@@ -91,6 +91,9 @@ describe('shareAccess', () => {
     expect(shareAccess({ '{DAV:}shareAccess': { 'not-shared': {} } })).toBeUndefined();
     // an unknown value is not read as a share either
     expect(shareAccess({ '{DAV:}shareAccess': { 'shared-owner': {} } })).toBeUndefined();
+    // nor is an empty element, as Twake Calendar answers for the administration and free-busy accesses
+    expect(shareAccess({ '{DAV:}shareAccess': {} })).toBeUndefined();
+    expect(shareAccess({ shareAccess: '' })).toBeUndefined();
   });
 });
 

@@ -28,8 +28,8 @@ export interface FakeDavOptions {
   sharedWithWrite?: string[];
   /** A server without ACL support: answers no owner and no privilege */
   withoutAccessRights?: boolean;
-  /** Calendars somebody shares with the account, and with which access (DAV:share-access) */
-  shareAccess?: Record<string, 'read' | 'read-write'>;
+  /** Calendars somebody shares with the account, and with which access (DAV:share-access, '' for an empty one) */
+  shareAccess?: Record<string, 'read' | 'read-write' | ''>;
   /** Calendars the account subscribed to: listed as calendars, owned by the subscriber (Twake Calendar) */
   subscribed?: string[];
 }
@@ -46,7 +46,8 @@ function accessProps(name: string, options: FakeDavOptions, asked: (property: st
   // a WebDAV server only returns the properties of the request: so does this one, which is
   // what proves that the code asks for DAV:share-access
   const shared = asked('share-access') ? options.shareAccess?.[name] : undefined;
-  const shareAccessProp = shared ? `<d:share-access><d:${shared}/></d:share-access>` : '';
+  // Twake Calendar answers an empty element for the administration and free-busy accesses
+  const shareAccessProp = shared === undefined ? '' : shared === '' ? '<d:share-access/>' : `<d:share-access><d:${shared}/></d:share-access>`;
   return `<d:owner>${owner}</d:owner><d:current-user-principal>${PRINCIPAL}</d:current-user-principal><d:current-user-privilege-set>${privileges}</d:current-user-privilege-set>${shareAccessProp}`;
 }
 const XML = { 'content-type': 'application/xml; charset=utf-8' };
