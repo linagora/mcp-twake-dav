@@ -4,6 +4,8 @@ All notable changes to mcp-twake-dav are documented here. The format follows [Ke
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-11-20
+
 ### Changed
 
 - The four tools that find an event by UID (`update_event`, `delete_event`, `add_alarm`, `remove_alarm`) read `calendar: "all"` as the default calendar when one is set: in 4.2.1 they searched every calendar.
