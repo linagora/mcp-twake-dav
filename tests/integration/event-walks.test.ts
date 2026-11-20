@@ -244,7 +244,11 @@ describe('walks', () => {
 
   it('get_todays_schedule pages through a dense day', async () => {
     const now = Date.now();
-    const start = now - (now % DAY) + 3_600_000;
+    // 01:00 *local*: the day the tool reads is the local one, and 01:00 UTC is still yesterday in a
+    // timezone west of UTC
+    const midnight = new Date(now);
+    midnight.setHours(0, 0, 0, 0);
+    const start = midnight.getTime() + 3_600_000;
     const event = (i: number) => ical(['BEGIN:VEVENT', `UID:e${i}`, 'DTSTAMP:20260101T000000Z', `SUMMARY:e${i}`, `DTSTART:${basic(start)}`, `DTEND:${basic(start + 60_000)}`, 'END:VEVENT']);
     serve(...Array.from({ length: 12 }, (_, i) => event(i)));
     const seen = await walk('get_todays_schedule', { limit: 5 });
