@@ -29,7 +29,7 @@ async function setup(answers: Answer[] = [], opts: { clientMode?: boolean; catch
     if (batchHook(() => text) === 'approved') return true;
     return ask(`${text} (ref ${BATCH_REF === 'batch' ? 'x' : '?'})`);
   };
-  server.tool('create_note', 'Writes a note.', { title: z.string(), tags: z.array(z.string()).optional() }, async ({ title }) => {
+  server.tool('create_note', 'Writes a note.', { title: z.string(), tags: z.array(z.string()).optional(), meta: z.object({ color: z.string() }).optional() }, async ({ title }) => {
     const describe = `Create the note "${title}"${opts.changed?.has(title) ? ' (changed)' : ''}`;
     try {
       if (!(await gate(describe))) return { content: [{ type: 'text', text: 'Not done' }] };
@@ -251,5 +251,31 @@ describe('approve_batch', () => {
     expect(r.text).toContain('action 2.');
     expect(r.text).toContain('on its own');
     expect(t.asked).toEqual([]);
+  });
+
+  it('refuses an action whose arguments carry keys the tool does not take, at any depth', async () => {
+    for (const args of [
+      { title: 'A', extra: 1 },
+      { title: 'A', batchId: 'f'.repeat(32) },
+      { title: 'A', meta: { color: 'red', owner: 'mallory' } },
+      JSON.parse('{"title":"A","__proto__":{"admin":true}}'),
+      JSON.parse('{"title":"A","constructor":{"prototype":{}}}'),
+    ]) {
+      const t = await setup(['accept']);
+      const r = await t.batchOf([{ tool: 'create_note', arguments: args }]);
+      expect(r.batchId, JSON.stringify(args)).toBeUndefined();
+      expect(r.isError).toBe(true);
+      expect(r.text).toContain('does not take');
+      expect(t.asked).toEqual([]);
+    }
+  });
+
+  it('shows the text the gate computes, never one the agent gives', async () => {
+    const t = await setup(['accept']);
+    const r = await t.batchOf([{ tool: 'create_note', arguments: { title: 'A' }, message: 'Nothing to see', description: 'harmless' } as never]);
+    expect(r.batchId).toBeDefined();
+    expect(t.asked[0]).toContain('[1/1] Create the note "A"');
+    expect(t.asked[0]).not.toContain('Nothing to see');
+    expect(t.asked[0]).not.toContain('harmless');
   });
 });

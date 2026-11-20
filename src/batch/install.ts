@@ -16,7 +16,6 @@ export interface ZodLike {
   string(): { optional(): { describe(text: string): unknown } };
   object(shape: Record<string, unknown>): { safeParse(value: unknown): { success: boolean; data?: unknown; error?: { message: string } } };
   array(item: unknown): { min(n: number): { max(n: number): unknown } };
-  record(key: unknown, value: unknown): unknown;
   unknown(): unknown;
 }
 
@@ -99,6 +98,40 @@ function isRawShape(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !isZodObject(value) && Object.values(value).every(isZodObject);
 }
 
+/** The first key of the raw arguments that validation dropped (a key the tool does not take), at any depth. */
+function droppedKey(raw: unknown, parsed: unknown, path = ''): string | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined;
+  if (parsed === null || typeof parsed !== 'object') return undefined; // a transform made something else of it
+  if (Array.isArray(raw)) {
+    if (!Array.isArray(parsed)) return undefined;
+    for (const [i, item] of raw.entries()) {
+      const found = droppedKey(item, parsed[i], `${path}[${i}]`);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (Object.getPrototypeOf(raw) !== Object.prototype && Object.getPrototypeOf(raw) !== null) return path || '(arguments)';
+  for (const key of Object.keys(raw)) {
+    const at = path ? `${path}.${key}` : key;
+    if (!Object.prototype.hasOwnProperty.call(parsed, key)) {
+      if ((raw as Record<string, unknown>)[key] === undefined) continue;
+      return at;
+    }
+    const found = droppedKey((raw as Record<string, unknown>)[key], (parsed as Record<string, unknown>)[key], at);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** canonical(), or undefined for arguments it refuses (they then never match a batch). */
+function keyOf(value: unknown): string | undefined {
+  try {
+    return canonical(value);
+  } catch {
+    return undefined;
+  }
+}
+
 function withNote(result: unknown, note: string): unknown {
   const r = result as ToolResult;
   if (!r || !Array.isArray(r.content)) return result;
@@ -117,8 +150,11 @@ export function installBatch(server: McpServer, o: BatchOptions): void {
       if (input === null || typeof input !== 'object' || !('batchId' in input)) return handler(...args);
       const { batchId, ...actual } = input;
       if (typeof batchId !== 'string' || batchId === '') return handler(actual, ...rest);
-      const item = store.reserve(batchId, name, canonical(actual));
+      // the arguments as the SDK validated them with the tool's schema, the way approve_batch computed its key
+      const key = keyOf(actual);
       const t = TEXT[o.language()];
+      if (key === undefined) return withNote(await handler(actual, ...rest), t.unusable('these arguments cannot be compared'));
+      const item = store.reserve(batchId, name, key);
       if (typeof item === 'string') {
         const reason = item === 'expired' ? 'it expired' : item === 'unknown' ? 'no such batch in this session' : 'this exact call is not in the batch, or was already made';
         return withNote(await handler(actual, ...rest), t.unusable(reason));
@@ -168,12 +204,13 @@ export function installBatch(server: McpServer, o: BatchOptions): void {
     'Ask the user ONCE to approve a list of write actions, before making them. Give the exact tool names and arguments you will use; the answer is a batchId. Then call each tool with exactly those arguments plus batchId: it runs without another question, once, within 15 minutes. Anything not in the list, or changed since, asks as usual. Use it for a series of 3 or more similar writes the user agreed to approve together.',
     {
       actions: z
-        .array(z.object({ tool: z.string(), arguments: z.record(z.string(), z.unknown()) } as Record<string, unknown>))
+        // arguments kept as the agent sent them (a record schema would drop keys such as __proto__ before the check below)
+        .array(z.object({ tool: z.string(), arguments: z.unknown() } as Record<string, unknown>))
         .min(1)
         .max(MAX_ACTIONS),
     } as Record<string, unknown>,
     { title: 'Approve a series of writes at once', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    async (input: { actions: { tool: string; arguments: Record<string, unknown> }[] }, extra: unknown): Promise<ToolResult> => {
+    async (input: { actions: { tool: string; arguments: unknown }[] }, extra: unknown): Promise<ToolResult> => {
       const t = TEXT[o.language()];
       if (o.clientMode()) return { content: [{ type: 'text', text: t.client }] };
       const actions = input.actions ?? [];
@@ -185,15 +222,21 @@ export function installBatch(server: McpServer, o: BatchOptions): void {
         if (!entry) return refuse('is not a tool of this server.');
         if (!writes.has(action.tool)) return refuse('does not write: call it directly.');
         if (entry.schema === undefined) return refuse('takes no arguments: it cannot be part of a batch, call it on its own.');
-        const parsed = (isZodObject(entry.schema) ? entry.schema : z.object(entry.schema as Record<string, unknown>)).safeParse(action.arguments ?? {});
+        if (action.arguments === null || typeof action.arguments !== 'object' || Array.isArray(action.arguments)) return refuse('needs its arguments as an object.');
+        const parsed = (isZodObject(entry.schema) ? entry.schema : z.object(entry.schema as Record<string, unknown>)).safeParse(action.arguments);
         if (!parsed.success) return refuse(`has invalid arguments: ${parsed.error?.message ?? 'see the tool schema'}`);
+        // what the user approves is what the agent sent: no key that validation would drop
+        const dropped = droppedKey(action.arguments, parsed.data);
+        if (dropped !== undefined) return refuse(`has an argument the tool does not take: ${dropped}.`);
+        const key = keyOf(parsed.data);
+        if (key === undefined) return refuse('has arguments that cannot be compared.');
         const capture = await runCapture(async () => entry.handler(parsed.data, extra));
         if (capture.message === undefined) {
           return refuse(capture.outcome === 'threw' ? `cannot be prepared: ${String((capture.error as Error)?.message ?? capture.error)}` : 'would not ask for an approval: call it on its own.');
         }
         if (shown(capture.message).length > MAX_ACTION_TEXT) return refuse(t.actionTooLong);
         // the arguments as the tool receives them (zod defaults added), as the call will be compared
-        described.push({ tool: action.tool, key: canonical(parsed.data), message: capture.message });
+        described.push({ tool: action.tool, key, message: capture.message });
       }
       const text = [t.header(described.length), '', ...described.map((d, i) => listed(shown(d.message), i + 1, described.length))].join('\n');
       if (text.length > MAX_TEXT) return { content: [{ type: 'text', text: t.tooLong }], isError: true };

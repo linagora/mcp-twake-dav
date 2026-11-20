@@ -10,6 +10,16 @@ describe('canonical', () => {
   it('leaves out undefined values, as JSON does', () => {
     expect(canonical({ a: undefined, b: 1 })).toBe('{"b":1}');
   });
+
+  it('writes a date as JSON does', () => {
+    expect(canonical({ at: new Date(0) })).toBe('{"at":"1970-01-01T00:00:00.000Z"}');
+  });
+
+  it('refuses what JSON cannot tell apart: class instances, maps, inherited keys', () => {
+    expect(() => canonical({ a: new Map([['x', 1]]) })).toThrow();
+    expect(() => canonical(Object.create({ admin: true }))).toThrow();
+    expect(() => canonical({ a: Object.setPrototypeOf({ b: 1 }, { c: 2 }) })).toThrow();
+  });
 });
 
 describe('BatchStore', () => {
