@@ -117,6 +117,25 @@ describe('calendar access rights', () => {
     }
   });
 
+  it('never puts a subscription in "mine", though the subscriber owns it and may write to it', async () => {
+    // Twake Calendar: a colleague's public calendar the account subscribed to answers the
+    // subscriber as DAV:owner, no DAV:share-access, and DAV:all unless the public right is read
+    const subscriber = await startFakeDav(['Perso', 'Colleague', 'Holidays'], { subscribed: ['Colleague', 'Holidays'], readOnly: ['Holidays'] });
+    try {
+      const config = { DAV_URL: subscriber.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      const calendars = await service.listCalendars();
+      const access = (name: string) => service.calendarAccess(calendars.find((calendar) => calendar.displayName === name)!);
+      expect(access('Perso')).toBe('mine');
+      expect(access('Colleague')).toBe('write');
+      expect(access('Holidays')).toBe('read');
+    } finally {
+      await subscriber.close();
+    }
+  });
+
   it('waits for the access rights when two tools are called at once', async () => {
     // a fresh service, as when an assistant calls list_calendars and get_todays_schedule together
     const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;

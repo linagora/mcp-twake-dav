@@ -30,6 +30,8 @@ export interface FakeDavOptions {
   withoutAccessRights?: boolean;
   /** Calendars somebody shares with the account, and with which access (DAV:share-access) */
   shareAccess?: Record<string, 'read' | 'read-write'>;
+  /** Calendars the account subscribed to: listed as calendars, owned by the subscriber (Twake Calendar) */
+  subscribed?: string[];
 }
 
 const PRINCIPAL = '<d:href>/principals/u1/</d:href>';
@@ -78,12 +80,13 @@ function discovery(req: DavRequest, calendars: string[], options: FakeDavOptions
   if (req.url.startsWith('/.well-known')) return { status: 404 };
   const prop = (name: string) => req.body.includes(name);
   if (req.url === '/calendars/u1/') {
-    const list = calendars.map((c) =>
-      propResponse(
-        `/calendars/u1/${c}/`,
-        `<d:displayname>${c}</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VEVENT"/></c:supported-calendar-component-set><cs:getctag>1</cs:getctag>${accessProps(c, options, prop)}`
-      )
-    );
+    const list = calendars.map((c) => {
+      // a subscription is a calendar too, without a component set: tsdav keeps it
+      const kind = options.subscribed?.includes(c)
+        ? '<d:resourcetype><d:collection/><c:calendar/><cs:subscribed/></d:resourcetype>'
+        : '<d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set><c:comp name="VEVENT"/></c:supported-calendar-component-set>';
+      return propResponse(`/calendars/u1/${c}/`, `<d:displayname>${c}</d:displayname>${kind}<cs:getctag>1</cs:getctag>${accessProps(c, options, prop)}`);
+    });
     return { status: 207, body: multistatus(list.join('')), headers: XML };
   }
   if (req.url === '/addressbooks/u1/') {

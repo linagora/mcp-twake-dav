@@ -11,6 +11,7 @@ import type { DAVClientType } from '../../src/caldav/client.js';
 import {
   calendarKey,
   classifyAccess,
+  isSubscription,
   privilegeNames,
   samePrincipal,
   shareAccess,
@@ -90,6 +91,21 @@ describe('shareAccess', () => {
     expect(shareAccess({ '{DAV:}shareAccess': { 'not-shared': {} } })).toBeUndefined();
     // an unknown value is not read as a share either
     expect(shareAccess({ '{DAV:}shareAccess': { 'shared-owner': {} } })).toBeUndefined();
+  });
+});
+
+describe('isSubscription', () => {
+  it('reads a subscription in the resource types, as tsdav lists them or as a parsed property', () => {
+    expect(isSubscription(['collection', 'calendar', 'subscribed'])).toBe(true);
+    expect(isSubscription({ collection: {}, calendar: {}, '{http://calendarserver.org/ns/}subscribed': {} })).toBe(true);
+    expect(isSubscription(['cs:Subscribed'])).toBe(true);
+  });
+
+  it('reads a plain calendar, or no resource type, as no subscription', () => {
+    expect(isSubscription(['collection', 'calendar'])).toBe(false);
+    expect(isSubscription({ collection: {}, calendar: {} })).toBe(false);
+    expect(isSubscription(undefined)).toBe(false);
+    expect(isSubscription('calendar')).toBe(false);
   });
 });
 

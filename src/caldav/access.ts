@@ -89,6 +89,27 @@ export function shareAccess(props: Record<string, unknown> | undefined): 'read' 
 }
 
 /**
+ * Whether a calendar is a subscription to somebody else's calendar
+ *
+ * Twake Calendar lists a subscription as a calendar (resource types `calendar` and
+ * `cs:subscribed`), answers the subscriber as its `DAV:owner`, and keeps `DAV:all` in its
+ * ACL unless the source is public read-only: the owner and the privileges alone would
+ * read it as one of the account's own calendars.
+ *
+ * @param resourcetype - the resource types, as tsdav lists them (`['collection', 'calendar', 'subscribed']`)
+ *   or as a parsed `DAV:resourcetype` (one key per type)
+ * @returns true when one of them is `subscribed`, whatever its namespace or case
+ */
+export function isSubscription(resourcetype: unknown): boolean {
+  const names = Array.isArray(resourcetype)
+    ? resourcetype.filter((name): name is string => typeof name === 'string')
+    : resourcetype && typeof resourcetype === 'object'
+      ? Object.keys(resourcetype)
+      : [];
+  return names.some((name) => name.replace(/^\{[^}]*\}/, '').replace(/^[^:]*:/, '').toLowerCase() === 'subscribed');
+}
+
+/**
  * Put a calendar in one of the three groups
  *
  * A calendar the account cannot write to is read-only, whoever owns it: some servers
@@ -98,20 +119,26 @@ export function shareAccess(props: Record<string, unknown> | undefined): 'read' 
  * @param owner - href of `DAV:owner`, when the server gives one
  * @param principal - href of `DAV:current-user-principal`
  * @param privileges - lower-cased privilege names, see privilegeNames()
+ * @param shared - the DAV:share-access, see shareAccess()
+ * @param subscribed - whether the calendar is a subscription, see isSubscription()
  * @returns "read" without a write privilege, else "mine" when the account owns the
  *   calendar, or "write" when it is somebody else's calendar shared with write access
+ *   or a subscription
  */
 export function classifyAccess(
   owner: string | undefined,
   principal: string | undefined,
   privileges: string[],
-  shared: 'read' | 'read-write' | undefined = undefined
+  shared: 'read' | 'read-write' | undefined = undefined,
+  subscribed = false
 ): CalendarAccess {
   // what the server says about the sharing wins, in both directions: a calendar shared with write
   // access is writable, one shared read-only is not, whatever the privileges add
   if (shared === 'read') return 'read';
   if (shared === 'read-write') return 'write';
   if (!privileges.some((name) => WRITE_PRIVILEGES.has(name))) return 'read';
+  // a subscription is somebody else's calendar, whoever the server names as its owner
+  if (subscribed) return 'write';
   return !owner || !principal || samePrincipal(owner, principal) ? 'mine' : 'write';
 }
 
@@ -170,13 +197,15 @@ export async function discoverCalendarAccess(
 
   // the home itself, the inbox and the outbox answer the same properties: only the calendars count
   const discovered = new Set(calendars.map((calendar) => calendarKey(calendar.url)));
+  const subscriptions = new Set(calendars.filter((calendar) => isSubscription(calendar.resourcetype)).map((calendar) => calendarKey(calendar.url)));
 
   for (const response of responses) {
     if (!response.href || !discovered.has(calendarKey(response.href))) continue;
     const privileges = privilegeNames(response.props?.currentUserPrivilegeSet);
     if (privileges.length === 0) continue; // the server does not tell
     const owner = (response.props?.owner as { href?: string } | undefined)?.href;
-    const entry: CalendarSharing = { access: classifyAccess(owner, principal, privileges, shareAccess(response.props)), ...(owner ? { owner } : {}) };
+    const subscribed = subscriptions.has(calendarKey(response.href)) || isSubscription(response.props?.resourcetype);
+    const entry: CalendarSharing = { access: classifyAccess(owner, principal, privileges, shareAccess(response.props), subscribed), ...(owner ? { owner } : {}) };
     sharing.set(calendarKey(response.href), entry);
   }
 
