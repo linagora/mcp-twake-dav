@@ -165,6 +165,29 @@ describe('CalendarService: the first discovery', () => {
   });
 });
 
+describe('CalendarService: an empty discovery', () => {
+  const logger = pino({ level: 'silent' });
+
+  it('discovers the calendars again on the next call instead of keeping an empty list', async () => {
+    // a server still provisioning the account answers no calendar at first
+    const calendars = [{ url: 'https://dav.example.com/calendars/u1/A/', displayName: 'A' }];
+    let discoveries = 0;
+    const client = {
+      fetchCalendars: async () => (++discoveries === 1 ? [] : calendars),
+      propfind: async () => [],
+      fetchCalendarObjects: async () => [],
+    } as unknown as DAVClientType;
+
+    const service = new CalendarService(client, logger, {} as Config);
+    await expect(service.listCalendars()).resolves.toHaveLength(0);
+    await expect(service.listCalendars()).resolves.toHaveLength(1);
+    expect(discoveries).toBe(2);
+    // once found, the calendars are kept
+    await service.listCalendars();
+    expect(discoveries).toBe(2);
+  });
+});
+
 describe('CalendarService: refreshCalendars', () => {
   const logger = pino({ level: 'silent' });
   const calendars = [{ url: 'https://dav.example.com/calendars/u1/A/', displayName: 'A' }];

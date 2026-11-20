@@ -134,7 +134,9 @@ export class CalendarService {
           this.logger.warn({ err }, 'Calendar access rights not available, listing calendars without them');
           return new Map<string, CalendarSharing>();
         });
-        this.loaded = true;
+        // an empty list is not kept: the next call discovers again, as before the rights
+        this.loaded = this.calendars.length > 0;
+        if (!this.loaded) this.loading = undefined;
       } catch (error) {
         // a failed discovery is tried again by the next call
         this.loading = undefined;
