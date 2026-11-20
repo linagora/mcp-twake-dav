@@ -18,6 +18,11 @@ type Context = { mode: 'capture'; message?: string } | { mode: 'preapproved'; ex
 
 const store = new AsyncLocalStorage<Context>();
 
+/** The batch this call runs in, if any: a gate whose text costs reads (an async description) computes it only then. */
+export function batchMode(): 'capture' | 'preapproved' | undefined {
+  return store.getStore()?.mode;
+}
+
 export function batchHook(describe: () => string): 'approved' | 'ask' {
   const context = store.getStore();
   if (!context) return 'ask';

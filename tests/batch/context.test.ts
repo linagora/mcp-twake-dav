@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BatchCapture, batchHook, runCapture, runPreapproved } from '../../src/batch/context.js';
+import { BatchCapture, batchHook, batchMode, runCapture, runPreapproved } from '../../src/batch/context.js';
 
 describe('batchHook', () => {
   it('asks outside a batch', () => {
@@ -52,5 +52,15 @@ describe('batchHook', () => {
   it('never approves a later request when the first one asked', async () => {
     const r = await runPreapproved('Create A', async () => [batchHook(() => 'Create A (moved)'), batchHook(() => 'Create A')]);
     expect(r).toEqual({ result: ['ask', 'ask'], approved: false });
+  });
+
+  it('tells a gate whether it runs in a batch, so that it computes its text only then', async () => {
+    expect(batchMode()).toBeUndefined();
+    expect((await runPreapproved('x', async () => batchMode())).result).toBe('preapproved');
+    let mode: string | undefined;
+    await runCapture(async () => {
+      mode = batchMode();
+    });
+    expect(mode).toBe('capture');
   });
 });
