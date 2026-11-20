@@ -56,6 +56,8 @@ export function createServer(
     confirm: (message) => approverFor(server).confirmText(message),
     clientMode: () => approverFor(server).opts.mode === 'client',
     language: () => approverFor(server).opts.language,
+    // the account and time zone the approval texts are written for
+    settings: () => JSON.stringify([approverFor(server).opts.as ?? '', approverFor(server).opts.timeZone ?? '']),
   });
 
   // Register all calendar and contact query tools
