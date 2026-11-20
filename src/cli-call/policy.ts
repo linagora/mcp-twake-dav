@@ -1,4 +1,5 @@
 import type { ElicitRequest, ElicitResult } from '@modelcontextprotocol/sdk/types.js';
+import { printable } from './output.js';
 
 /**
  * Who started `call`, and the answer the command line gives the server's approval requests (spec §2.3):
@@ -85,7 +86,8 @@ export interface Approver {
 
 export function cliApprover(o: PolicyOptions): Approver {
   let declined = false;
-  const say = (line: string) => o.stderr(`${line}\n`);
+  // the approval text comes from the server: no control sequence may disguise it
+  const say = (line: string) => o.stderr(`${printable(line)}\n`);
   const accept = (): ElicitResult => ({ action: 'accept', content: {} });
   const decline = (): ElicitResult => {
     declined = true;

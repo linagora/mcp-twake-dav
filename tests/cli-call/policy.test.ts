@@ -129,3 +129,12 @@ describe('cliApprover', () => {
     expect(err()).toContain('cannot answer');
   });
 });
+
+describe('approval texts from a server', () => {
+  it('are written without terminal control sequences', async () => {
+    const { approver, err } = setup();
+    await approver.handle({ ...approval, message: 'Send "Hi\u001b[2K\rApproved\u001b]0;title\u0007"?' });
+    expect(err()).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+    expect(err()).toContain('Send "Hi');
+  });
+});

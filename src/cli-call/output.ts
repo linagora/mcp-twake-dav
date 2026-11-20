@@ -5,6 +5,17 @@ import { CliError } from './errors.js';
 /** What `call` writes on stdout and the exit code it ends with; what `tools` writes. */
 type Content = CallToolResult['content'][number];
 
+/**
+ * What a server sends (an e-mail subject, a description) can carry terminal control sequences: they could rewrite
+ * the line above, retitle the window or fill the clipboard. Only new lines and tabs are kept.
+ */
+export function printable(text: string): string {
+  return text
+    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?/g, '')
+    .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '');
+}
+
 function describeContent(item: Content): string {
   switch (item.type) {
     case 'text':
@@ -24,7 +35,7 @@ function describeContent(item: Content): string {
 
 export function renderResult(result: CallToolResult, json: boolean): string {
   if (json) return `${JSON.stringify(result)}\n`;
-  const parts = (result.content ?? []).map(describeContent);
+  const parts = (result.content ?? []).map((item) => printable(describeContent(item)));
   return parts.length ? `${parts.join('\n\n')}\n` : '';
 }
 
@@ -36,7 +47,7 @@ export function exitCodeFor(result: CallToolResult, declined: boolean): 0 | 1 | 
 
 export function toolLine(tool: Tool): string {
   const first = tool.description?.split('\n')[0]?.trim();
-  return first ? `${tool.name} — ${first}\n` : `${tool.name}\n`;
+  return printable(first ? `${tool.name} — ${first}` : tool.name) + '\n';
 }
 
 export function describeTool(tool: Tool): string {
@@ -51,7 +62,7 @@ export function describeTool(tool: Tool): string {
     return `  ${key} (${type}${required.has(key) ? ', required' : ''})${property.description ? ` — ${property.description}` : ''}`;
   });
   const description = tool.description ? `${tool.description}\n` : '';
-  return `${tool.name}\n${description}\n${lines.length ? `Parameters:\n${lines.join('\n')}` : 'No parameters.'}\n`;
+  return printable(`${tool.name}\n${description}\n${lines.length ? `Parameters:\n${lines.join('\n')}` : 'No parameters.'}`) + '\n';
 }
 
 function distance(a: string, b: string): number {

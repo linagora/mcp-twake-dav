@@ -67,3 +67,26 @@ describe('findTool', () => {
     expect(() => findTool(tools, 'ecko', 'mcp-twake-dav')).toThrow(/mcp-twake-dav tools/);
   });
 });
+
+describe('terminal control sequences from a server', () => {
+  const evil = 'Subject\u001b]52;c;cGF5bG9hZA==\u0007 \u001b[2K\rApproved\u009b31m';
+
+  it('are never written by the text output, the tool lines or the descriptions', () => {
+    for (const written of [
+      renderResult({ content: [{ type: 'text', text: evil }] }, false),
+      toolLine({ name: 'x', description: evil, inputSchema: { type: 'object' } }),
+      describeTool({ name: 'x', description: evil, inputSchema: { type: 'object', properties: { a: { type: 'string', description: evil } } } }),
+    ]) {
+      expect(written).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+      expect(written).toContain('Subject');
+    }
+  });
+
+  it('keep new lines and tabs', () => {
+    expect(renderResult({ content: [{ type: 'text', text: 'a\tb\nc' }] }, false)).toBe('a\tb\nc\n');
+  });
+
+  it('stay escaped in --json-output', () => {
+    expect(renderResult({ content: [{ type: 'text', text: evil }] }, true)).toContain('\\u001b');
+  });
+});
