@@ -77,11 +77,11 @@ describe('MCP Tool Registration', () => {
     await serverTransport.close();
   });
 
-  it('should register all 20 tools', async () => {
+  it('should register all 21 tools', async () => {
     const response = await client.listTools();
 
     expect(response.tools).toBeDefined();
-    expect(response.tools).toHaveLength(20);
+    expect(response.tools).toHaveLength(21);
   });
 
   it('should register tools with correct names', async () => {
@@ -90,6 +90,7 @@ describe('MCP Tool Registration', () => {
     const toolNames = response.tools.map((tool) => tool.name).sort();
     const expectedNames = [
       'add_alarm',
+      'approve_batch',
       'check_availability',
       'create_contact',
       'create_event',
@@ -400,10 +401,10 @@ describe('MCP Tool Registration', () => {
     }
   });
 
-  it('should have openWorldHint: true on all tools', async () => {
+  it('should have openWorldHint: true on all DAV tools (approve_batch only asks the user)', async () => {
     const response = await client.listTools();
 
-    for (const tool of response.tools) {
+    for (const tool of response.tools.filter((t) => t.name !== 'approve_batch')) {
       expect((tool as any).annotations?.openWorldHint).toBe(true);
     }
   });
