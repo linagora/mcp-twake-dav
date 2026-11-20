@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { homedir, userInfo } from 'node:os';
+import { userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { parseArgs } from 'node:util';
@@ -23,7 +23,8 @@ export interface CliDeps {
   io: CliIo;
   env: NodeJS.ProcessEnv;
   platform: NodeJS.Platform;
-  home: string;
+  /** the account's home folder as the system knows it; undefined: no name is allowed, none can be */
+  home: string | undefined;
   stdinTTY: boolean;
   stderrTTY: boolean;
   ask(question: string): Promise<string>;
@@ -60,12 +61,12 @@ async function readAllStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-/** The account's home folder as the system knows it, not $HOME (see settingsPath). */
-function accountHome(): string {
+/** The account's home folder as the system knows it, never $HOME (see settingsPath); none if the system gives none. */
+function accountHome(): string | undefined {
   try {
-    return userInfo().homedir;
+    return userInfo().homedir || undefined;
   } catch {
-    return homedir();
+    return undefined;
   }
 }
 
@@ -132,8 +133,12 @@ export async function runCliCommand(argv: string[], options: { entry: string }, 
 
 async function dispatch(argv: string[], pkg: { name: string; version: string }, entry: string, d: CliDeps): Promise<number> {
   const [command, ...args] = argv;
-  const file = settingsPath(d.platform, d.home);
-  if (command === 'allow-unattended') return allowUnattended(args, pkg.name, file, d);
+  // fail closed: without the account's home folder, no list is read and none is written
+  const file = d.home === undefined ? undefined : settingsPath(d.platform, d.home);
+  if (command === 'allow-unattended') {
+    if (file === undefined) throw new CliError(4, 'the system gives no home folder for this account: allowed names cannot be kept.');
+    return allowUnattended(args, pkg.name, file, d);
+  }
   if (command !== 'tools' && command !== 'call') throw new CliError(2, usageText(pkg.name));
   const { values, positionals } = parse(pkg.name, () =>
     parseArgs({
@@ -161,7 +166,7 @@ async function dispatch(argv: string[], pkg: { name: string; version: string }, 
   const timeout = v.timeout === undefined ? DEFAULT_TIMEOUT_S : Number(v.timeout);
   if (!Number.isInteger(timeout) || timeout <= 0) throw new CliError(2, `--timeout takes a number of seconds, not "${String(v.timeout)}".`);
   const [executable, ...serverArgs] = serverCommand(d.env, entry);
-  const settings = await readSettings(file);
+  const settings = file === undefined ? { version: 1 as const, allowedUnattended: [], agentMarkers: [] } : await readSettings(file);
   const { context, marker } = detectContext({ stdinTTY: d.stdinTTY, stderrTTY: d.stderrTTY, env: d.env, markers: settings.agentMarkers });
   // read before the server starts: a bad --json costs nothing
   const json = typeof v.json === 'string' ? await readJsonArgument(v.json, d.readStdin) : {};

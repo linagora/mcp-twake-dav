@@ -129,6 +129,12 @@ describe('call', { timeout: 20_000 }, () => {
     expect(r.code).toBe(3);
   });
 
+  it('allows no name when the system gives no home folder for the account', async () => {
+    const r = await cli(['allow-unattended', 'cron-x'], { ...user, ask: async () => 'y', home: undefined });
+    expect(r.code).toBe(4);
+    expect((await cli(['call', 'send_note', '--arg', 'text=x', '--yes', '--as', 'cron-x'], { home: undefined })).code).toBe(3);
+  });
+
   it('does not ask when stdin carries the arguments', async () => {
     const asked: string[] = [];
     const r = await cli(['call', 'send_note', '--json', '-', '--i'], { ...user, ask: async (q) => (asked.push(q), 'y'), readStdin: async () => '{"text":"x"}' });
