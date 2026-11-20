@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { dirname, posix, win32 } from 'node:path';
 import { CliError } from './errors.js';
 
@@ -15,12 +15,14 @@ export interface CliSettings {
 export const NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const MARKER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** The folder of mcp-twake-ai's config.json, by the same rule as its appPaths(). */
-export function settingsPath(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, home: string): string {
+/**
+ * Next to mcp-twake-ai's config.json, in the home folder the system gives the account (`os.userInfo()`), never where
+ * an environment variable points: a command line could otherwise be given a cli.json of its own (TWAKE_AI_HOME,
+ * XDG_CONFIG_HOME, APPDATA, HOME) that allows any name.
+ */
+export function settingsPath(platform: NodeJS.Platform, home: string): string {
   const path = platform === 'win32' ? win32 : posix;
-  if (env.TWAKE_AI_HOME) return path.join(env.TWAKE_AI_HOME, 'config', 'cli.json');
-  if (platform === 'win32') return path.join(env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'twake-ai', 'cli.json');
-  return path.join(env.XDG_CONFIG_HOME || path.join(home, '.config'), 'twake-ai', 'cli.json');
+  return platform === 'win32' ? path.join(home, 'AppData', 'Roaming', 'twake-ai', 'cli.json') : path.join(home, '.config', 'twake-ai', 'cli.json');
 }
 
 const empty = (): CliSettings => ({ version: 1, allowedUnattended: [], agentMarkers: [] });
@@ -32,6 +34,10 @@ export async function readSettings(file: string): Promise<CliSettings> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return empty();
     throw new CliError(4, `${file} cannot be read: ${(error as Error).message}`);
+  }
+  // a list another account may write is no list of the user's
+  if (process.platform !== 'win32' && ((await stat(file)).mode & 0o022) !== 0) {
+    throw new CliError(4, `${file} may be written by other accounts: run \`chmod 600 ${file}\`, or delete it.`);
   }
   const damaged = new CliError(4, `${file} is damaged: fix it, or delete it to start again with no allowed names.`);
   let raw: unknown;

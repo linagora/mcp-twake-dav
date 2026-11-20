@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { parseArgs } from 'node:util';
@@ -60,12 +60,21 @@ async function readAllStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+/** The account's home folder as the system knows it, not $HOME (see settingsPath). */
+function accountHome(): string {
+  try {
+    return userInfo().homedir;
+  } catch {
+    return homedir();
+  }
+}
+
 function defaultDeps(): CliDeps {
   return {
     io: { stdout: (t) => void process.stdout.write(t), stderr: (t) => void process.stderr.write(t) },
     env: process.env,
     platform: process.platform,
-    home: homedir(),
+    home: accountHome(),
     stdinTTY: Boolean(process.stdin.isTTY),
     stderrTTY: Boolean(process.stderr.isTTY),
     ask: askOnStderr,
@@ -123,7 +132,7 @@ export async function runCliCommand(argv: string[], options: { entry: string }, 
 
 async function dispatch(argv: string[], pkg: { name: string; version: string }, entry: string, d: CliDeps): Promise<number> {
   const [command, ...args] = argv;
-  const file = settingsPath(d.env, d.platform, d.home);
+  const file = settingsPath(d.platform, d.home);
   if (command === 'allow-unattended') return allowUnattended(args, pkg.name, file, d);
   if (command !== 'tools' && command !== 'call') throw new CliError(2, usageText(pkg.name));
   const { values, positionals } = parse(pkg.name, () =>

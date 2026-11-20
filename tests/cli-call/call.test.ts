@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { runCliCommand, type CliDeps } from '../../src/cli-call/index.js';
+import { settingsPath } from '../../src/cli-call/settings.js';
 
 const fake = fileURLToPath(new URL('./fake-server.mjs', import.meta.url));
 const entry = fileURLToPath(new URL('../../src/index.ts', import.meta.url));
@@ -18,7 +19,7 @@ async function cli(argv: string[], overrides: Partial<CliDeps> = {}, env: NodeJS
     { entry },
     {
       io: { stdout: (t) => void (out += t), stderr: (t) => void (err += t) },
-      env: { PATH: process.env.PATH, TWAKE_AI_HOME: home, TWAKE_MCP_CLI_SERVER: JSON.stringify([process.execPath, fake]), ...env },
+      env: { PATH: process.env.PATH, TWAKE_MCP_CLI_SERVER: JSON.stringify([process.execPath, fake]), ...env },
       platform: process.platform,
       home,
       stdinTTY: false,
@@ -84,9 +85,9 @@ describe('call', { timeout: 20_000 }, () => {
     expect(refused.code).toBe(3);
     const allowed = await cli(['allow-unattended', 'cron-x'], { ...user, ask: async () => 'y' });
     expect(allowed.code).toBe(0);
-    const env = { TWAKE_AI_HOME: allowed.home };
-    expect((await cli(['call', 'send_note', '--arg', 'text=x', '--yes', '--as', 'cron-x'], {}, env)).code).toBe(0);
-    expect((await cli(['call', 'send_note', '--arg', 'text=x', '--yes', '--as', 'other'], {}, env)).code).toBe(3);
+    const same = { home: allowed.home };
+    expect((await cli(['call', 'send_note', '--arg', 'text=x', '--yes', '--as', 'cron-x'], same)).code).toBe(0);
+    expect((await cli(['call', 'send_note', '--arg', 'text=x', '--yes', '--as', 'other'], same)).code).toBe(3);
   });
 
   it('allows a name only after a yes typed in a terminal, and revokes anywhere', async () => {
@@ -94,9 +95,9 @@ describe('call', { timeout: 20_000 }, () => {
     const r = await cli(['allow-unattended', 'cron-x'], { ...user, ask: async () => 'n' });
     expect(r.code).toBe(1);
     const ok = await cli(['allow-unattended', 'cron-x'], { ...user, ask: async () => 'y' });
-    const file = join(ok.home, 'config', 'cli.json');
+    const file = settingsPath(process.platform, ok.home);
     expect(JSON.parse(await readFile(file, 'utf8')).allowedUnattended).toEqual(['cron-x']);
-    expect((await cli(['allow-unattended', 'cron-x', '--revoke'], {}, { TWAKE_AI_HOME: ok.home })).code).toBe(0);
+    expect((await cli(['allow-unattended', 'cron-x', '--revoke'], { home: ok.home })).code).toBe(0);
     expect(JSON.parse(await readFile(file, 'utf8')).allowedUnattended).toEqual([]);
     expect((await cli(['allow-unattended', 'Bad Name'], { ...user, ask: async () => 'y' })).code).toBe(2);
   });
@@ -120,6 +121,12 @@ describe('call', { timeout: 20_000 }, () => {
 
   it('stops a tool that never answers', async () => {
     expect((await cli(['call', 'hang', '--timeout', '1'])).code).toBe(4);
+  });
+
+  it('never reads an allowed name from a cli.json an environment variable points to', async () => {
+    const elsewhere = await cli(['allow-unattended', 'cron-x'], { ...user, ask: async () => 'y' });
+    const r = await cli(['call', 'send_note', '--arg', 'text=x', '--yes', '--as', 'cron-x'], {}, { XDG_CONFIG_HOME: join(elsewhere.home, '.config'), HOME: elsewhere.home });
+    expect(r.code).toBe(3);
   });
 
   it('does not ask when stdin carries the arguments', async () => {

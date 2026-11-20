@@ -1,16 +1,14 @@
-import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { readSettings, settingsPath, writeSettings } from '../../src/cli-call/settings.js';
 
 describe('settingsPath', () => {
-  it('follows mcp-twake-ai: TWAKE_AI_HOME, then APPDATA on Windows, then XDG_CONFIG_HOME or ~/.config', () => {
-    expect(settingsPath({ TWAKE_AI_HOME: '/t' }, 'linux', '/home/u')).toBe('/t/config/cli.json');
-    expect(settingsPath({ APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'win32', 'C:\\Users\\u')).toBe('C:\\Users\\u\\AppData\\Roaming\\twake-ai\\cli.json');
-    expect(settingsPath({}, 'win32', 'C:\\Users\\u')).toBe('C:\\Users\\u\\AppData\\Roaming\\twake-ai\\cli.json');
-    expect(settingsPath({ XDG_CONFIG_HOME: '/x' }, 'linux', '/home/u')).toBe('/x/twake-ai/cli.json');
-    expect(settingsPath({}, 'darwin', '/Users/u')).toBe('/Users/u/.config/twake-ai/cli.json');
+  it('is in the home folder of the account, never where an environment variable points', () => {
+    expect(settingsPath('linux', '/home/u')).toBe('/home/u/.config/twake-ai/cli.json');
+    expect(settingsPath('darwin', '/Users/u')).toBe('/Users/u/.config/twake-ai/cli.json');
+    expect(settingsPath('win32', 'C:\\Users\\u')).toBe('C:\\Users\\u\\AppData\\Roaming\\twake-ai\\cli.json');
   });
 });
 
@@ -33,15 +31,25 @@ describe('readSettings / writeSettings', () => {
     const dir = await mkdtemp(join(tmpdir(), 'cli-settings-'));
     for (const content of ['{bad', '[]', '{"version":2,"allowedUnattended":[],"agentMarkers":[]}', '{"version":1,"allowedUnattended":["Bad Name"],"agentMarkers":[]}', '{"version":1,"allowedUnattended":[],"agentMarkers":["a b"]}']) {
       const file = join(dir, 'cli.json');
-      await writeFile(file, content);
+      await writeFile(file, content, { mode: 0o600 });
+      await chmod(file, 0o600);
       await expect(readSettings(file)).rejects.toMatchObject({ exitCode: 4, message: expect.stringContaining(file) });
     }
+  });
+
+  it.skipIf(process.platform === 'win32')('refuses a file other accounts may write', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cli-settings-'));
+    const file = join(dir, 'cli.json');
+    await writeFile(file, '{"version":1,"allowedUnattended":["cron"],"agentMarkers":[]}', { mode: 0o666 });
+    await chmod(file, 0o666);
+    await expect(readSettings(file)).rejects.toMatchObject({ exitCode: 4, message: expect.stringContaining('other accounts') });
   });
 
   it('takes missing lists as empty', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'cli-settings-'));
     const file = join(dir, 'cli.json');
-    await writeFile(file, '{"version":1}');
+    await writeFile(file, '{"version":1}', { mode: 0o600 });
+    await chmod(file, 0o600);
     expect(await readSettings(file)).toEqual({ version: 1, allowedUnattended: [], agentMarkers: [] });
   });
 });
