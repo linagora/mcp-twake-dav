@@ -233,4 +233,67 @@ END:VCALENDAR`,
     // three occurrences of one series, not three copies of the first one
     expect(events.map((e) => e.startDate.toISOString()).sort()).toEqual(['2026-11-09T10:00:00.000Z', '2026-11-10T10:00:00.000Z', '2026-11-11T10:00:00.000Z']);
   });
+
+  describe('an occurrence moved into the range from a slot outside it', () => {
+    // the 13 November slot is outside the range: only the pass over the exceptions lists it
+    const series = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:into@example.com
+DTSTAMP:20260101T000000Z
+DTSTART:20261109T100000Z
+DTEND:20261109T110000Z
+RRULE:FREQ=DAILY;COUNT=5
+SUMMARY:Daily
+END:VEVENT
+BEGIN:VEVENT
+UID:into@example.com
+DTSTAMP:20260101T000000Z
+RECURRENCE-ID:20261113T100000Z
+DTSTART:20261110T100000Z
+DTEND:20261110T110000Z
+SUMMARY:Daily (moved in)
+END:VEVENT
+END:VCALENDAR`;
+    const alone = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:into@example.com
+DTSTAMP:20260101T000000Z
+RECURRENCE-ID:20261113T100000Z
+DTSTART:20261110T100000Z
+DTEND:20261110T110000Z
+SUMMARY:Daily (moved in)
+END:VEVENT
+END:VCALENDAR`;
+    const range = { start: '2026-11-09T00:00:00Z', end: '2026-11-12T00:00:00Z' };
+    const at = (url: string, data: string) => ({ url, etag: `"${url}"`, data }) as DAVCalendarObject;
+
+    it('is listed once when two calendars hold the series, next to the occurrence it was moved onto', () => {
+      const events = getEventsWithRecurrenceExpansion(
+        [at('https://dav.example.com/calendars/u1/mine/s.ics', series), at('https://dav.example.com/calendars/u1/team/s.ics', series)],
+        range,
+        logger
+      );
+
+      // 9, 10 and 11 November from the series, and the occurrence of the 13th moved onto the 10th
+      expect(events.map((event) => `${event.startDate.toISOString()} ${event.summary}`)).toEqual([
+        '2026-11-09T10:00:00.000Z Daily',
+        '2026-11-10T10:00:00.000Z Daily',
+        '2026-11-10T10:00:00.000Z Daily (moved in)',
+        '2026-11-11T10:00:00.000Z Daily',
+      ]);
+    });
+
+    it('is listed once when another calendar holds it alone, with its RECURRENCE-ID', () => {
+      const events = getEventsWithRecurrenceExpansion(
+        [at('https://dav.example.com/calendars/u1/mine/s.ics', series), at('https://dav.example.com/calendars/u1/team/a.ics', alone)],
+        range,
+        logger
+      );
+
+      expect(events.filter((event) => event.summary === 'Daily (moved in)')).toHaveLength(1);
+      expect(events).toHaveLength(4);
+    });
+  });
 });

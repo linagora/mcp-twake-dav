@@ -216,4 +216,189 @@ END:VCALENDAR`;
       expect(dates).toContain('2026-02-23');
     });
   });
+
+  describe('RECURRENCE-ID carrying a TZID', () => {
+    // Twake Calendar (and most clients) qualify RECURRENCE-ID with the series' TZID
+    // instead of using UTC. A UTC occurrence never matched such a value, so moved and
+    // cancelled instances were reported at their original slot.
+    const VTIMEZONE = `BEGIN:VTIMEZONE
+TZID:Europe/Paris
+BEGIN:STANDARD
+DTSTART:19701025T030000
+TZOFFSETFROM:+0200
+TZOFFSETTO:+0100
+RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU
+END:STANDARD
+BEGIN:DAYLIGHT
+DTSTART:19700329T020000
+TZOFFSETFROM:+0100
+TZOFFSETTO:+0200
+RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU
+END:DAYLIGHT
+END:VTIMEZONE`;
+
+    const series = (extra: string) => `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+${VTIMEZONE}
+BEGIN:VEVENT
+UID:test-tzid@example.com
+DTSTART;TZID=Europe/Paris:20230405T110000
+DTEND;TZID=Europe/Paris:20230405T120000
+RRULE:FREQ=WEEKLY
+SUMMARY:Cours
+END:VEVENT
+${extra}
+END:VCALENDAR`;
+
+    const expand = (ics: string, start: string, end: string) =>
+      getEventsWithRecurrenceExpansion(
+        [{ url: 'https://example.com/calendar/event.ics', etag: '"abc123"', data: ics }],
+        { start, end },
+        mockLogger
+      );
+
+    it('should not report an instance moved to another day at its original slot', () => {
+      const ics = series(`BEGIN:VEVENT
+UID:test-tzid@example.com
+RECURRENCE-ID;TZID=Europe/Paris:20261111T110000
+DTSTART;TZID=Europe/Paris:20261110T150000
+DTEND;TZID=Europe/Paris:20261110T160000
+SUMMARY:Cours
+END:VEVENT`);
+
+      // Wednesday 11 November 2026, the day of the moved occurrence
+      const events = expand(ics, '2026-11-11T00:00:00Z', '2026-11-12T00:00:00Z');
+
+      expect(events).toHaveLength(0);
+    });
+
+    it('should report an instance moved to another time at its new time', () => {
+      const ics = series(`BEGIN:VEVENT
+UID:test-tzid@example.com
+RECURRENCE-ID;TZID=Europe/Paris:20261111T110000
+DTSTART;TZID=Europe/Paris:20261111T150000
+DTEND;TZID=Europe/Paris:20261111T160000
+SUMMARY:Cours (déplacé)
+END:VEVENT`);
+
+      const events = expand(ics, '2026-11-11T00:00:00Z', '2026-11-12T00:00:00Z');
+
+      expect(events).toHaveLength(1);
+      expect(events[0].summary).toBe('Cours (déplacé)');
+      // 15:00 in Paris is 14:00 UTC
+      expect(events[0].startDate.toISOString()).toBe('2026-11-11T14:00:00.000Z');
+    });
+
+    it('should drop an instance cancelled with a TZID RECURRENCE-ID', () => {
+      const ics = series(`BEGIN:VEVENT
+UID:test-tzid@example.com
+RECURRENCE-ID;TZID=Europe/Paris:20261111T110000
+DTSTART;TZID=Europe/Paris:20261111T110000
+DTEND;TZID=Europe/Paris:20261111T120000
+STATUS:CANCELLED
+SUMMARY:Cours
+END:VEVENT`);
+
+      const events = expand(ics, '2026-11-11T00:00:00Z', '2026-11-12T00:00:00Z');
+
+      expect(events).toHaveLength(0);
+    });
+
+    it('should keep the untouched instances of the series', () => {
+      const ics = series(`BEGIN:VEVENT
+UID:test-tzid@example.com
+RECURRENCE-ID;TZID=Europe/Paris:20261111T110000
+DTSTART;TZID=Europe/Paris:20261111T110000
+DTEND;TZID=Europe/Paris:20261111T120000
+STATUS:CANCELLED
+SUMMARY:Cours
+END:VEVENT`);
+
+      // The next week's instance still happens
+      const events = expand(ics, '2026-11-18T00:00:00Z', '2026-11-19T00:00:00Z');
+
+      expect(events).toHaveLength(1);
+      expect(events[0].startDate.toISOString()).toBe('2026-11-18T10:00:00.000Z');
+    });
+
+    it('should not report an all-day instance moved to another day', () => {
+      const ics = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:test-allday@example.com
+DTSTART;VALUE=DATE:20230308
+DTEND;VALUE=DATE:20230309
+RRULE:FREQ=WEEKLY
+SUMMARY:Kiné
+END:VEVENT
+BEGIN:VEVENT
+UID:test-allday@example.com
+RECURRENCE-ID;VALUE=DATE:20261111
+DTSTART;VALUE=DATE:20261110
+DTEND;VALUE=DATE:20261111
+SUMMARY:Kiné
+END:VEVENT
+END:VCALENDAR`;
+
+      // noon to noon, so that an all-day event of the day before never overlaps the range
+      // whatever the timezone of the machine running the tests
+      const events = expand(ics, '2026-11-11T12:00:00Z', '2026-11-12T12:00:00Z');
+
+      expect(events).toHaveLength(0);
+    });
+
+    it('should drop an all-day instance cancelled with a dated RECURRENCE-ID', () => {
+      const ics = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:test-allday-cancelled@example.com
+DTSTART;VALUE=DATE:20230308
+DTEND;VALUE=DATE:20230309
+RRULE:FREQ=WEEKLY
+SUMMARY:Kiné
+END:VEVENT
+BEGIN:VEVENT
+UID:test-allday-cancelled@example.com
+RECURRENCE-ID;VALUE=DATE:20261111
+DTSTART;VALUE=DATE:20261111
+DTEND;VALUE=DATE:20261112
+STATUS:CANCELLED
+SUMMARY:Kiné
+END:VEVENT
+END:VCALENDAR`;
+
+      const events = expand(ics, '2026-11-11T12:00:00Z', '2026-11-12T12:00:00Z');
+
+      expect(events).toHaveLength(0);
+    });
+
+    it('should drop a cancelled floating instance', () => {
+      const ics = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:test-floating@example.com
+DTSTART:20230405T110000
+DTEND:20230405T120000
+RRULE:FREQ=WEEKLY
+SUMMARY:Réunion
+END:VEVENT
+BEGIN:VEVENT
+UID:test-floating@example.com
+RECURRENCE-ID:20261111T110000
+DTSTART:20261111T110000
+DTEND:20261111T120000
+STATUS:CANCELLED
+SUMMARY:Réunion
+END:VEVENT
+END:VCALENDAR`;
+
+      const events = expand(ics, '2026-11-11T00:00:00Z', '2026-11-12T00:00:00Z');
+
+      expect(events).toHaveLength(0);
+    });
+  });
 });
