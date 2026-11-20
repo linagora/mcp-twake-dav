@@ -11,7 +11,7 @@
 
 ## What is it?
 
-`mcp-twake-dav` is a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server. MCP is the open standard that lets AI assistants (Claude Desktop, Claude Code, Hermes Agent, Cursor, VS Code and many others) use external tools. This server exposes your **calendars** and **address books** to the assistant as **20 tools**: agenda, availability, events, reminders, invitations and contacts.
+`mcp-twake-dav` is a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server. MCP is the open standard that lets AI assistants (Claude Desktop, Claude Code, Hermes Agent, Cursor, VS Code and many others) use external tools. This server exposes your **calendars** and **address books** to the assistant as **21 tools**: agenda, availability, events, reminders, invitations and contacts.
 
 It speaks the open standards **CalDAV** ([RFC 4791](https://www.rfc-editor.org/rfc/rfc4791)), **CardDAV** ([RFC 6352](https://www.rfc-editor.org/rfc/rfc6352)) and CalDAV scheduling ([RFC 6638](https://www.rfc-editor.org/rfc/rfc6638)). It is built for Twake Calendar and works with other SabreDAV-compatible servers (Nextcloud, SOGo, DAViCal, ownCloud…).
 
@@ -43,7 +43,7 @@ Used together, they let one assistant prepare a meeting from the invitation, the
 
 ## Features
 
-### 20 MCP tools
+### 21 MCP tools
 
 | Category | Tools |
 |---|---|
@@ -52,6 +52,7 @@ Used together, they let one assistant prepare a meeting from the invitation, the
 | Invitations | `list_invitations` (events of your calendars awaiting your answer, next 30 days by default), `respond_to_invitation` ⚠️ |
 | Contacts, read | `search_contacts`, `get_contact_details`, `list_contacts`, `list_addressbooks` |
 | Contacts, write | `create_contact`, `update_contact`, `delete_contact` ⚠️ |
+| Approval | `approve_batch` (one approval for a series of writes, see [below](#approving-a-series-of-writes-at-once)) |
 
 ⚠️ = deletes data or makes the server notify other people. Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `openWorldHint`).
 
@@ -288,6 +289,10 @@ npx mcp-twake-dav call create_event --json @event.json
 - **Writes:** typed by you in a terminal, a write is approved without a question (`--i` asks first). Started by an agent (`CLAUDECODE` or `HERMES_HOME` set), a write is refused: agents write through their MCP tools, which ask you. Without a terminal (cron), a write is refused unless it passes `--yes --as <name>` for a name you allowed once, in a terminal, with `npx mcp-twake-dav allow-unattended <name>`. The allowed names are shared by the six Twake.ai servers, in `~/.config/twake-ai/cli.json` (`%USERPROFILE%\AppData\Roaming\twake-ai\cli.json` on Windows).
 - These rules stop an agent that follows instructions; they cannot stop a program that hides that it is an agent, or rewrites `cli.json`, under your account.
 - With [mcp-twake-ai](https://github.com/linagora/mcp-twake-ai), `npx mcp-twake-ai call dav …` does the same with your Twake.ai sign-in.
+
+## Approving a series of writes at once
+
+Before a series of writes (several events, several contacts), an agent can ask you once for the whole list with `approve_batch`: you see every action, numbered, in one approval. Each call that then carries the `batchId` and matches a listed action exactly runs without another question, once, within 15 minutes. A call that is not in the list, or whose target changed since you approved, asks as usual. With `DAV_APPROVAL=client`, there is no batch.
 
 ## Recommended safe configuration
 

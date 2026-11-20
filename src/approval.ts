@@ -7,6 +7,7 @@
 import { randomBytes } from 'node:crypto';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { BATCH_REF, batchHook } from './batch/index.js';
 
 export type ApprovalMode = 'elicit' | 'client';
 export type Language = 'en' | 'fr';
@@ -47,6 +48,19 @@ const LABELS = {
 } as const;
 
 export type Action = keyof typeof ACTIONS;
+
+/** The tools that ask through gate() before writing: the ones approve_batch accepts. */
+export const WRITE_TOOLS = [
+  'create_event',
+  'update_event',
+  'delete_event',
+  'add_alarm',
+  'remove_alarm',
+  'respond_to_invitation',
+  'create_contact',
+  'update_contact',
+  'delete_contact',
+] as const;
 export type Label = keyof (typeof LABELS)['en'];
 
 export interface ApprovalRequest {
@@ -129,6 +143,8 @@ export class Approver {
    * when nothing must be written.
    */
   async gate(req: ApprovalRequest): Promise<ToolResult | null> {
+    // a call approved in a batch whose text did not change goes through; approve_batch describing it stops here
+    if (batchHook(() => approvalMessage(req, this.opts, BATCH_REF)) === 'approved') return null;
     if (this.opts.mode === 'client') return null;
     if (!this.server.getClientCapabilities()?.elicitation) {
       return {
@@ -166,6 +182,17 @@ export class Approver {
         },
       ],
     };
+  }
+
+  /** The batch question (approve_batch): accepted or not, with the same request and timeout as gate. */
+  async confirmText(message: string): Promise<boolean> {
+    if (this.opts.mode === 'client' || !this.server.getClientCapabilities()?.elicitation) return false;
+    try {
+      const res = await this.server.elicitInput({ mode: 'form', message, requestedSchema: { type: 'object', properties: {} } }, { timeout: this.opts.timeoutMs });
+      return res.action === 'accept';
+    } catch {
+      return false;
+    }
   }
 }
 

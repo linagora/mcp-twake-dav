@@ -145,6 +145,7 @@ export function installBatch(server: McpServer, o: BatchOptions): void {
         .min(1)
         .max(MAX_ACTIONS),
     } as Record<string, unknown>,
+    { title: 'Approve a series of writes at once', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     async (input: { actions: { tool: string; arguments: Record<string, unknown> }[] }, extra: unknown): Promise<ToolResult> => {
       const t = TEXT[o.language()];
       if (o.clientMode()) return { content: [{ type: 'text', text: t.client }] };

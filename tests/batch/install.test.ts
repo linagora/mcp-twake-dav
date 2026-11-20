@@ -209,4 +209,10 @@ describe('approve_batch', () => {
     expect(props('read_note')).not.toContain('batchId');
     expect(tools.map((x) => x.name)).toContain('approve_batch');
   });
+
+  it('annotates approve_batch: no write, nothing outside the server', async () => {
+    const t = await setup();
+    const { tools } = await t.client.listTools();
+    expect(tools.find((x) => x.name === 'approve_batch')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: false });
+  });
 });

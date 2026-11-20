@@ -11,6 +11,9 @@ import type { Logger } from 'pino';
 import type { CalendarService } from './caldav/calendar-service.js';
 import type { AddressBookService } from './caldav/addressbook-service.js';
 import { registerAllTools } from './tools/index.js';
+import { z } from 'zod';
+import { installBatch } from './batch/index.js';
+import { approverFor, WRITE_TOOLS } from './approval.js';
 
 /**
  * Create and configure an MCP server with all tools registered
@@ -44,6 +47,15 @@ export function createServer(
   const server = new McpServer({
     name: 'mcp-twake-dav',
     version: VERSION,
+  });
+
+  // approve_batch, and batchId on every write tool: installed before the tools are registered (spec §5)
+  installBatch(server, {
+    writeTools: WRITE_TOOLS,
+    z,
+    confirm: (message) => approverFor(server).confirmText(message),
+    clientMode: () => approverFor(server).opts.mode === 'client',
+    language: () => approverFor(server).opts.language,
   });
 
   // Register all calendar and contact query tools
