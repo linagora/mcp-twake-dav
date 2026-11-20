@@ -152,7 +152,8 @@ export function registerCheckAvailabilityTool(
         }
         const rawEvents = await resolveCalendarEvents(calendarService, params.calendar, defaultCalendar, timeRange);
         // no deduplication here: each copy carries its own TRANSP, and the busy periods are merged anyway
-        const events = expandEvents(rawEvents, timeRange, logger).map((found) => found.event);
+        // the cancellations other copies carry are not events: they only remove a slot from a listing
+        const events = expandEvents(rawEvents, timeRange, logger).flatMap((found) => (found.cancelled ? [] : [found.event]));
         // Anything not read could be what makes this time busy.
         if (hasPartialRead()) {
           return {
