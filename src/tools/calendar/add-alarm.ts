@@ -12,6 +12,7 @@ import type { CalendarService } from '../../caldav/calendar-service.js';
 import { ConflictError } from '../../errors.js';
 import { addAlarmToEvent } from '../../transformers/event-builder.js';
 import { approverFor } from '../../approval.js';
+import { defaultCalendarText } from './utils.js';
 
 /**
  * Register the add_alarm tool
@@ -35,7 +36,7 @@ export function registerAddAlarmTool(
       trigger: z.string().describe('When to trigger the reminder before the event. Supports natural language (e.g., "15 minutes", "1 hour", "1 day", "15m", "1h", "1d") or iCalendar duration format ("-PT15M").'),
       calendar: z.string().optional().describe(
         'Calendar name to search in. Use "all" to search all calendars. ' +
-        (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to all calendars.')
+        defaultCalendarText(defaultCalendar) + ' A group name searches the calendars of that group.'
       ),
     },
     {

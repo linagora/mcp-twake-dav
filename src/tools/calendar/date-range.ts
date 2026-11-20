@@ -13,6 +13,7 @@ import {
   formatEvent,
   parseNaturalDateRange,
   resolveCalendarEvents,
+  calendarParamDescription,
   paginationParams,
   checkWindow,
   pageWindow,
@@ -42,10 +43,7 @@ export function registerDateRangeTool(
     {
       when: z.string().describe('Date range expression: \'this week\', \'next month\', \'tomorrow\', \'January 15 to January 20\', etc.'),
       ...paginationParams,
-      calendar: z.string().optional().describe(
-        'Calendar name to search in. Use "all" to search all calendars. ' +
-        (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to all calendars.')
-      ),
+      calendar: z.string().optional().describe(calendarParamDescription(defaultCalendar)),
     },
     {
       readOnlyHint: true,

@@ -15,6 +15,7 @@ import {
   searchEventsByKeyword,
   searchEventsByAttendee,
   resolveCalendarEvents,
+  calendarParamDescription,
   paginationParams,
   checkWindow,
   pageWindow,
@@ -46,10 +47,7 @@ export function registerSearchEventsTool(
       attendee: z.string().optional().describe('Attendee name to filter by'),
       when: z.string().optional().describe('Date range to search (defaults to next 30 days). Examples: \'this week\', \'next month\''),
       ...paginationParams,
-      calendar: z.string().optional().describe(
-        'Calendar name to search in. Use "all" to search all calendars. ' +
-        (defaultCalendar ? `Defaults to "${defaultCalendar}".` : 'Defaults to all calendars.')
-      ),
+      calendar: z.string().optional().describe(calendarParamDescription(defaultCalendar)),
     },
     {
       readOnlyHint: true,
