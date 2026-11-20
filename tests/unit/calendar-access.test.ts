@@ -11,6 +11,7 @@ import type { DAVClientType } from '../../src/caldav/client.js';
 import {
   calendarKey,
   classifyAccess,
+  isSubscription,
   privilegeNames,
   samePrincipal,
   shareAccess,
@@ -90,6 +91,24 @@ describe('shareAccess', () => {
     expect(shareAccess({ '{DAV:}shareAccess': { 'not-shared': {} } })).toBeUndefined();
     // an unknown value is not read as a share either
     expect(shareAccess({ '{DAV:}shareAccess': { 'shared-owner': {} } })).toBeUndefined();
+    // nor is an empty element, as Twake Calendar answers for the administration and free-busy accesses
+    expect(shareAccess({ '{DAV:}shareAccess': {} })).toBeUndefined();
+    expect(shareAccess({ shareAccess: '' })).toBeUndefined();
+  });
+});
+
+describe('isSubscription', () => {
+  it('reads a subscription in the resource types, as tsdav lists them or as a parsed property', () => {
+    expect(isSubscription(['collection', 'calendar', 'subscribed'])).toBe(true);
+    expect(isSubscription({ collection: {}, calendar: {}, '{http://calendarserver.org/ns/}subscribed': {} })).toBe(true);
+    expect(isSubscription(['cs:Subscribed'])).toBe(true);
+  });
+
+  it('reads a plain calendar, or no resource type, as no subscription', () => {
+    expect(isSubscription(['collection', 'calendar'])).toBe(false);
+    expect(isSubscription({ collection: {}, calendar: {} })).toBe(false);
+    expect(isSubscription(undefined)).toBe(false);
+    expect(isSubscription('calendar')).toBe(false);
   });
 });
 
@@ -143,6 +162,29 @@ describe('CalendarService: the first discovery', () => {
 
     await expect(Promise.all([first, second])).resolves.toBeDefined();
     expect(service.calendarAccess(calendars[0])).toBe('mine');
+  });
+});
+
+describe('CalendarService: an empty discovery', () => {
+  const logger = pino({ level: 'silent' });
+
+  it('discovers the calendars again on the next call instead of keeping an empty list', async () => {
+    // a server still provisioning the account answers no calendar at first
+    const calendars = [{ url: 'https://dav.example.com/calendars/u1/A/', displayName: 'A' }];
+    let discoveries = 0;
+    const client = {
+      fetchCalendars: async () => (++discoveries === 1 ? [] : calendars),
+      propfind: async () => [],
+      fetchCalendarObjects: async () => [],
+    } as unknown as DAVClientType;
+
+    const service = new CalendarService(client, logger, {} as Config);
+    await expect(service.listCalendars()).resolves.toHaveLength(0);
+    await expect(service.listCalendars()).resolves.toHaveLength(1);
+    expect(discoveries).toBe(2);
+    // once found, the calendars are kept
+    await service.listCalendars();
+    expect(discoveries).toBe(2);
   });
 });
 

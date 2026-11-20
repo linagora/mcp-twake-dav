@@ -117,6 +117,43 @@ describe('calendar access rights', () => {
     }
   });
 
+  it('falls back to the privileges and the owner when the sharing access is empty', async () => {
+    // Twake Calendar serialises the administration (5) and free-busy (6) accesses as <d:share-access/>
+    const shared = await startFakeDav(['Perso', 'Admin', 'Busy'], { shareAccess: { Perso: '', Admin: '', Busy: '' }, sharedWithWrite: ['Admin'], readOnly: ['Busy'] });
+    try {
+      const config = { DAV_URL: shared.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      const calendars = await service.listCalendars();
+      const access = (name: string) => service.calendarAccess(calendars.find((calendar) => calendar.displayName === name)!);
+      expect(access('Perso')).toBe('mine');
+      expect(access('Admin')).toBe('write');
+      expect(access('Busy')).toBe('read');
+    } finally {
+      await shared.close();
+    }
+  });
+
+  it('never puts a subscription in "mine", though the subscriber owns it and may write to it', async () => {
+    // Twake Calendar: a colleague's public calendar the account subscribed to answers the
+    // subscriber as DAV:owner, no DAV:share-access, and DAV:all unless the public right is read
+    const subscriber = await startFakeDav(['Perso', 'Colleague', 'Holidays'], { subscribed: ['Colleague', 'Holidays'], readOnly: ['Holidays'] });
+    try {
+      const config = { DAV_URL: subscriber.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      const calendars = await service.listCalendars();
+      const access = (name: string) => service.calendarAccess(calendars.find((calendar) => calendar.displayName === name)!);
+      expect(access('Perso')).toBe('mine');
+      expect(access('Colleague')).toBe('write');
+      expect(access('Holidays')).toBe('read');
+    } finally {
+      await subscriber.close();
+    }
+  });
+
   it('waits for the access rights when two tools are called at once', async () => {
     // a fresh service, as when an assistant calls list_calendars and get_todays_schedule together
     const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p' } as Config;
@@ -296,6 +333,129 @@ describe('calendar access rights', () => {
       await expect(service.listPendingInvitations(undefined, 'mine')).rejects.toThrow(/does not publish the access rights/);
     } finally {
       await blind.close();
+    }
+  });
+
+  it('writes an event into the first calendar it may write to, not into the first one', async () => {
+    // "Shared" comes first and is read-only: a blind calendars[0] would fail there
+    const writable = await startFakeDav(['Shared', 'Perso'], { readOnly: ['Shared'] });
+    writable.handler = (req) => (req.method === 'PUT' ? { status: 201, headers: { etag: '"1"' } } : null);
+    try {
+      const config = { DAV_URL: writable.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_APPROVAL: 'client' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      await service.createEvent('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n');
+      const put = writable.requests.filter((request) => request.method === 'PUT');
+      expect(put).toHaveLength(1);
+      expect(put[0].url).toContain('/Perso/');
+    } finally {
+      await writable.close();
+    }
+  });
+
+  it('creates the event in the calendar the approval named when two share its name', async () => {
+    // a colleague's "Agenda" shared with write access comes first; the user's own calendar is renamed
+    // to "Agenda" as well after the discovery, so a lookup by name would find the colleague's one
+    const same = await startFakeDav(['Agenda', 'Own'], { sharedWithWrite: ['Agenda'] });
+    same.handler = (req) => (req.method === 'PUT' ? { status: 201, headers: { etag: '"1"' } } : null);
+    try {
+      const config = { DAV_URL: same.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_APPROVAL: 'client' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+      const calendars = await service.listCalendars();
+      calendars[1] = { ...calendars[1], displayName: 'Agenda' };
+      const own = calendars[1];
+
+      const server = createServer(service, new AddressBookService(clients.carddav, logger), logger, undefined, undefined, undefined, { DAV_APPROVAL: 'client' });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await server.connect(serverTransport);
+      const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+      await scoped.connect(clientTransport);
+
+      try {
+        const answer = await scoped.callTool({ name: 'create_event', arguments: { title: 'Point', start: '2026-11-12T10:00:00', end: '2026-11-12T11:00:00' } });
+        // the tool names the calendar it chose, and the write goes there
+        const text = (answer.content as Array<{ text: string }>).map((content) => content.text).join('\n');
+        expect(text).toContain('in calendar "Agenda"');
+        const put = same.requests.filter((request) => request.method === 'PUT');
+        expect(put).toHaveLength(1);
+        expect(put[0].url).toContain(own.url.replace(same.url, '/'));
+      } finally {
+        await scoped.close();
+      }
+    } finally {
+      await same.close();
+    }
+  });
+
+  it('refuses a calendar named by hand and known to be read-only, before asking for approval', async () => {
+    const config = { DAV_URL: dav.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_APPROVAL: 'client' } as Config;
+    const clients = await createDualClients(config, logger);
+    const service = new CalendarService(clients.caldav, logger, config);
+    const server = createServer(service, new AddressBookService(clients.carddav, logger), logger, undefined, undefined, undefined, { DAV_APPROVAL: 'client' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+    await scoped.connect(clientTransport);
+
+    const answer = await scoped.callTool({ name: 'create_event', arguments: { title: 'Point', start: '2026-11-12T10:00:00', end: '2026-11-12T11:00:00', calendar: 'Shared' } });
+    const text = (answer.content as Array<{ text: string }>).map((content) => content.text).join('\n');
+    expect(text).toContain('is read-only');
+    expect(dav.requests.filter((request) => request.method === 'PUT')).toHaveLength(0);
+    await scoped.close();
+  });
+
+  it('writes into a calendar whose rights are unknown when the others are read-only', async () => {
+    // one home refuses to give its rights: its calendar was never checked, and is the only chance
+    const partial = await startFakeDav(['Shared', 'Mine'], { readOnly: ['Shared'] });
+    partial.handler = (req) => {
+      if (req.method === 'PUT') return { status: 201, headers: { etag: '"1"' } };
+      if (req.method === 'PROPFIND' && req.body.includes('current-user-privilege-set')) {
+        // only "Shared" answers, with a read-only privilege: "Mine" is left without rights
+        return {
+          status: 207,
+          headers: { 'content-type': 'application/xml; charset=utf-8' },
+          body: `<d:multistatus xmlns:d="DAV:"><d:response><d:href>/calendars/u1/Shared/</d:href><d:propstat><d:prop><d:displayname>Shared</d:displayname><d:owner><d:href>/principals/u1/</d:href></d:owner><d:current-user-principal><d:href>/principals/u1/</d:href></d:current-user-principal><d:current-user-privilege-set><d:privilege><d:read/></d:privilege></d:current-user-privilege-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`,
+        };
+      }
+      return null;
+    };
+    try {
+      const config = { DAV_URL: partial.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_APPROVAL: 'client' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+
+      await service.createEvent('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n');
+      const put = partial.requests.filter((request) => request.method === 'PUT');
+      expect(put).toHaveLength(1);
+      expect(put[0].url).toContain('/Mine/');
+    } finally {
+      await partial.close();
+    }
+  });
+
+  it('refuses to create an event when no calendar may be written to, before asking for approval', async () => {
+    // every calendar is read-only: the answer comes before the approval, and is not "event not found"
+    const readOnly = await startFakeDav(['Shared'], { readOnly: ['Shared'] });
+    readOnly.handler = (req) => (req.method === 'PUT' ? { status: 201, headers: { etag: '"1"' } } : null);
+    try {
+      const config = { DAV_URL: readOnly.url, DAV_AUTH_METHOD: 'basic', DAV_USERNAME: 'u', DAV_PASSWORD: 'p', DAV_APPROVAL: 'client' } as Config;
+      const clients = await createDualClients(config, logger);
+      const service = new CalendarService(clients.caldav, logger, config);
+      const server = createServer(service, new AddressBookService(clients.carddav, logger), logger, undefined, undefined, undefined, { DAV_APPROVAL: 'client' });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await server.connect(serverTransport);
+      const scoped = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+      await scoped.connect(clientTransport);
+
+      const answer = await scoped.callTool({ name: 'create_event', arguments: { title: 'Point', start: '2026-11-12T10:00:00', end: '2026-11-12T11:00:00' } });
+      const text = (answer.content as Array<{ text: string }>).map((content) => content.text).join('\n');
+      expect(text).toContain('No calendar you may write to');
+      expect(readOnly.requests.filter((request) => request.method === 'PUT')).toHaveLength(0);
+      await scoped.close();
+    } finally {
+      await readOnly.close();
     }
   });
 

@@ -202,8 +202,10 @@ A group can also be the default calendar (`DAV_DEFAULT_CALENDAR=mine`): an assis
 The rights come from three properties:
 
 - `DAV:current-user-privilege-set` says whether the account may write: without `DAV:write`, `DAV:write-content` or `DAV:all`, the calendar is read-only;
-- `DAV:share-access`, when the server publishes it, says that a calendar is shared with the account, and with which access — it wins over the privileges, and it is what tells a colleague's calendar shared with write access from one you own (SabreDAV names the receiving account as its owner);
+- `DAV:share-access`, when the server publishes it, says that a calendar is shared with the account, and with which access — it wins over the privileges, and it is what tells a colleague's calendar shared with write access from one you own on a server that names the receiving account as its owner (upstream SabreDAV does; Twake Calendar names the account that shares it);
 - `DAV:owner` separates your own calendars from somebody else's shared with write access, on servers that do not publish the sharing.
+
+A subscription — a colleague's public calendar you subscribed to, which Twake Calendar lists as a calendar with the resource type `cs:subscribed` and you as its owner — is never in `mine`: it goes to `shared-write` when you may write to it, to `read-only` otherwise.
 
 A server that publishes none of them gets the plain list, and asking for a group then says so instead of answering "No calendar with…": name a calendar, or use `"all"`. Calendars whose rights the server gives for some of them only are listed apart, under *Access rights unknown*.
 
