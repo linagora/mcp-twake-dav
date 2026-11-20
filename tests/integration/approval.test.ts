@@ -34,6 +34,7 @@ function setup(opts: { answer?: 'accept' | 'decline' | 'cancel'; elicitation?: b
   const calendarService = {
     listCalendars: async () => [],
     findEventByUid: async () => event,
+    resolveCreateTarget: async () => ({ displayName: 'Perso', url: 'https://dav.example.com/cal/' }),
     createEvent: async () => (writes.push('createEvent'), { url: 'https://dav.example.com/cal/new.ics', etag: '"n"' }),
     updateEvent: async () => (writes.push('updateEvent'), { url: event.url, etag: '"3"' }),
     deleteEvent: async () => void writes.push('deleteEvent'),
@@ -122,6 +123,8 @@ describe('prior approval of writes', () => {
     const t = setup();
     await t.call('create_event', WRITES[0][1]);
     expect(t.prompts[0]).toContain('Titre : Point budget');
+    // the calendar the event really goes to is named, not "first calendar"
+    expect(t.prompts[0]).toContain('Agenda : Perso');
     expect(t.prompts[0]).toContain('Quand : 2026-11-05 14:00 → 15:00 (Europe/Paris)');
     expect(t.prompts[0]).toContain('Invités : Bob DURAND <bob.durand@example.com> (ils reçoivent une invitation envoyée en votre nom)');
     await t.call('delete_event', { uid: 'ev-1' });

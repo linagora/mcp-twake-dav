@@ -49,7 +49,7 @@ export function registerCreateEventTool(
           ? isCalendarGroup(defaultCalendar)
             ? 'A group of calendars cannot hold a new event: name the calendar.'
             : defaultCalendarText(defaultCalendar)
-          : 'Defaults to first calendar.')
+          : 'Defaults to the first calendar you may write to.')
       ),
       allDay: z.boolean().optional().describe('If true, creates an all-day event (DATE format instead of DATE-TIME)'),
       recurrence: z.string().optional().describe('RRULE recurrence string (e.g., "FREQ=WEEKLY;BYDAY=MO", "FREQ=DAILY;COUNT=5")'),
@@ -156,6 +156,28 @@ export function registerCreateEventTool(
           };
         }
 
+        // The calendar the event will really go to: resolving it now names it in the approval, refuses
+        // before it when the account has none it may write to, and is the one the write uses
+        let destination: string | undefined;
+        let chosenCalendar: Awaited<ReturnType<typeof calendarService.resolveCreateTarget>> | undefined;
+        try {
+          const chosen = await calendarService.resolveCreateTarget(resolvedCalendar);
+          chosenCalendar = chosen;
+          destination = typeof chosen.displayName === 'string' ? chosen.displayName : chosen.url;
+          // a calendar named by hand and known to be read-only: say it now, not after the approval
+          if (params.calendar && calendarService.calendarAccess(chosen) === 'read') {
+            return {
+              content: [{ type: 'text' as const, text: `The calendar "${destination}" is read-only: name a calendar you may write to.\n\nFix: Use list_calendars to see the calendars and their access.` }],
+              isError: true,
+            };
+          }
+        } catch (error) {
+          return {
+            content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }],
+            isError: true,
+          };
+        }
+
         // Build iCalendar string with timezone
         const iCalString = buildICalString({
           title: params.title,
@@ -173,7 +195,7 @@ export function registerCreateEventTool(
         const refused = await approverFor(server).gate({
           action: 'create_event',
           details: [
-            ['calendar', resolvedCalendar],
+            ['calendar', destination],
             ['title', params.title],
             ['when', approverFor(server).span(startDate, endDate, Boolean(params.allDay))],
             ['location', params.location],
@@ -184,13 +206,14 @@ export function registerCreateEventTool(
         });
         if (refused) return refused;
         // Create event
-        const result = await calendarService.createEvent(iCalString, resolvedCalendar);
+        // the calendar itself: two calendars may share a name, and the user approved this one
+        const result = await calendarService.createEvent(iCalString, resolvedCalendar, chosenCalendar);
 
         // Format success response with user timezone
         const displayTimezone = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
         const tzOptions: Intl.DateTimeFormatOptions = { timeZone: displayTimezone };
 
-        const calendarText = resolvedCalendar ? ` in calendar "${resolvedCalendar}"` : '';
+        const calendarText = destination ? ` in calendar "${destination}"` : '';
         const locationText = params.location ? `\nLocation: ${params.location}` : '';
         const descriptionText = params.description ? `\nDescription: ${params.description}` : '';
         const recurrenceText = params.recurrence ? `\nRecurrence: ${params.recurrence}` : '';
@@ -212,7 +235,7 @@ export function registerCreateEventTool(
           .filter(line => line !== '')
           .join('\n');
 
-        logger.info({ url: result.url, calendar: resolvedCalendar }, 'Event created successfully');
+        logger.info({ url: result.url, calendar: destination }, 'Event created successfully');
 
         return {
           content: [

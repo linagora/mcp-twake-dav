@@ -445,30 +445,19 @@ export class CalendarService {
    * Create a new calendar event
    *
    * @param iCalString - Complete iCalendar string to create
-   * @param calendarName - Optional calendar display name (case-insensitive), defaults to first calendar
+   * @param calendarName - Optional calendar display name (case-insensitive); without it, the first calendar the account may write to (see resolveCreateTarget())
+   * @param resolved - The calendar to write into, when the caller already resolved it (two calendars may share a name)
    * @returns Object with url and etag of the created event
    * @throws ConflictError if 412 response (event with this UID already exists)
    * @throws Error if calendar not found or creation fails
    */
   async createEvent(
     iCalString: string,
-    calendarName?: string
+    calendarName?: string,
+    resolved?: DAVCalendar
   ): Promise<{ url: string; etag: string | undefined }> {
-    // Resolve target calendar
-    await this.listCalendars();
-    let targetCalendar: DAVCalendar;
-
-    if (calendarName) {
-      const match = this.calendars.find(
-        (cal) => String(cal.displayName || '').toLowerCase() === calendarName.trim().toLowerCase()
-      );
-      if (!match) {
-        throw this.notFound(calendarName);
-      }
-      targetCalendar = match;
-    } else {
-      targetCalendar = this.calendars[0];
-    }
+    // a calendar already resolved by the caller: the one the user approved, whatever its name
+    const targetCalendar = resolved ?? (await this.resolveCreateTarget(calendarName));
 
     // Generate filename
     const filename = `${randomUUID()}.ics`;
@@ -676,6 +665,38 @@ export class CalendarService {
 
     this.logger.debug({ uid }, 'Event not found by UID');
     return null;
+  }
+
+  /**
+   * The calendar create_event writes into: the named one, else the first the account may write to
+   *
+   * A server that publishes no access rights keeps the previous behaviour (the first calendar).
+   *
+   * @param calendarName - the calendar the user named, if any
+   * @throws Error when the name matches no calendar, or when no calendar may be written to
+   */
+  async resolveCreateTarget(calendarName?: string): Promise<DAVCalendar> {
+    await this.listCalendars();
+    if (calendarName) {
+      const match = this.calendars.find(
+        (cal) => String(cal.displayName || '').toLowerCase() === calendarName.trim().toLowerCase()
+      );
+      if (!match) throw this.notFound(calendarName);
+      return match;
+    }
+
+    // the user's own calendars, then the ones shared with write access, then the ones whose rights the
+    // server did not give (one home may refuse while the others answer): only the last resort is an error
+    const writable =
+      this.calendars.find((calendar) => this.calendarAccess(calendar) === 'mine') ??
+      this.calendars.find((calendar) => this.calendarAccess(calendar) === 'write') ??
+      this.calendars.find((calendar) => this.calendarAccess(calendar) === undefined);
+    if (writable) return writable;
+    if (this.calendars.length === 0) {
+      throw new Error('This account has no calendar to create an event in.\n\nFix: Create one in the Calendar web interface, then try again.');
+    }
+    // every calendar answered, and none allows a write: say it now, not after the approval
+    throw new Error('No calendar you may write to was found, so an event cannot be created.\n\nFix: Use list_calendars to see the calendars and their access.');
   }
 
   /**
