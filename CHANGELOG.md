@@ -4,7 +4,7 @@ All notable changes to mcp-twake-dav are documented here. The format follows [Ke
 
 ## [Unreleased]
 
-## [4.3.0]
+## [4.3.0] - 2026-11-20
 
 ### Changed
 
