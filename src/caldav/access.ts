@@ -70,9 +70,9 @@ export function privilegeNames(privilegeSet: unknown): string[] {
  *
  * `DAV:share-access` (the CalDAV sharing extension, also on SabreDAV) answers `read` or
  * `read-write` for a calendar somebody shares with the account, and nothing for its own.
- * It is the only reliable signal there: such a server answers the receiving account as
- * `DAV:owner`, so the owner alone cannot tell a calendar shared with write access from
- * one the account owns.
+ * It is the only reliable signal on a server that answers the receiving account as
+ * `DAV:owner` (upstream SabreDAV; Twake Calendar answers the sharer): there the owner
+ * alone cannot tell a calendar shared with write access from one the account owns.
  *
  * @param props - the properties of one calendar, as tsdav parses them
  * @returns the sharing access, or undefined when the server says nothing
